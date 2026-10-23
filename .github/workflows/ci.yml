@@ -1,0 +1,41 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    name: Linux checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev libegl1-mesa-dev libgl1-mesa-dev libxkbcommon-dev fonts-dejavu-core desktop-file-utils
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Tests
+        run: cargo test --locked
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Desktop entry and installer
+        run: |
+          bash -n install.sh
+          desktop-file-validate packaging/rpad.desktop
+          PREFIX="$RUNNER_TEMP/rpad-install" ./install.sh
+          test "$("$RUNNER_TEMP/rpad-install/bin/rpad" --version)" = "RPad 0.1.0"
+          test -f "$RUNNER_TEMP/rpad-install/share/applications/rpad.desktop"
+          test -f "$RUNNER_TEMP/rpad-install/share/icons/hicolor/scalable/apps/rpad.svg"

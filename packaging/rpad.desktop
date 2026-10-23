@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=RPad
+GenericName=Text Editor
+Comment=A small, calm Material 3 text editor
+Exec=rpad %f
+Icon=rpad
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/x-log;text/x-markdown;application/x-shellscript;
+Keywords=text;editor;notes;leafpad;
+StartupWMClass=rpad

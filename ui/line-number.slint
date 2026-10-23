@@ -1,0 +1,28 @@
+// Store opacity explicitly: a lazy animated binding can miss its initial zero
+// when several rows are constructed between two rendered frames.
+export component AnimatedLineNumber inherits Text {
+    in property <bool> shown: true;
+    in property <bool> animated: true;
+    private property <duration> started;
+    private property <float> start-opacity: 0;
+    private property <bool> fading: true;
+    opacity: 0;
+    init => { root.started = animation-tick(); if !root.animated { root.opacity = root.shown ? 1 : 0; root.fading = false; } }
+    changed animated => { if !root.animated { root.opacity = root.shown ? 1 : 0; root.fading = false; } }
+    changed shown => {
+        root.start-opacity = root.opacity;
+        root.started = animation-tick();
+        root.fading = root.animated;
+        if !root.animated { root.opacity = root.shown ? 1 : 0; }
+    }
+    Timer {
+        interval: 8ms;
+        running: root.fading;
+        triggered => {
+            let t = min(1, max(0, (animation-tick() - root.started) / 180ms));
+            let eased = root.shown ? t * t : 1 - (1 - t) * (1 - t);
+            root.opacity = root.start-opacity + ((root.shown ? 1 : 0) - root.start-opacity) * eased;
+            if t >= 1 { root.fading = false; }
+        }
+    }
+}

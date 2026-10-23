@@ -1,0 +1,32 @@
+[package]
+name = "rpad"
+version = "0.1.0"
+edition = "2021"
+description = "RPad: a small Material 3 text editor with smooth caret and text animations"
+license = "GPL-3.0-only"
+build = "build.rs"
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-femtovg-wgpu", "compat-1-2"] }
+rfd = "0.15.4"
+tempfile = "3"
+libc = "0.2"
+
+[build-dependencies]
+winresource = "0.1"
+slint-build = "=1.18.1"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[dev-dependencies]
+i-slint-backend-testing = "=1.18.1"
+
+i-slint-core = { version = "=1.18.1", default-features = false }
+
+[patch.crates-io]
+i-slint-core = { path = "vendor/i-slint-core" }
+
+i-slint-backend-winit = { path = "vendor/i-slint-backend-winit" }
+i-slint-renderer-femtovg = { path = "vendor/i-slint-renderer-femtovg" }

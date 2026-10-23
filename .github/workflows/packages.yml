@@ -1,0 +1,50 @@
+name: Packages
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - run: python scripts/package-source.py
+      - run: python scripts/collect-licenses.py
+      - run: python scripts/package-windows.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RPad-windows-x86_64
+          path: dist/RPad-0.1.0-windows-x86_64.zip
+  appimage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev libegl1-mesa-dev libgl1-mesa-dev libxkbcommon-dev patchelf
+      - run: cargo build --release --locked
+      - run: python3 scripts/package-source.py && python3 scripts/collect-licenses.py
+      - name: AppImage
+        run: |
+          ./scripts/build-appdir.sh
+          cp -r dist/licenses target/RPad.AppDir/usr/share/doc/rpad/
+          cp dist/*sources.tar.gz dist/RPad-0.1.0-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
+          curl -fL -o /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION=0.1.0 /tmp/appimagetool --no-appstream target/RPad.AppDir dist/RPad-0.1.0-x86_64.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.0-x86_64.AppImage --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RPad-AppImage-x86_64
+          path: dist/RPad-0.1.0-x86_64.AppImage

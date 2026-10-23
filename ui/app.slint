@@ -1,0 +1,497 @@
+import { Palette } from "std-widgets.slint";
+import { ScrollView } from "solid-scrollview.slint";
+import { AnimatedLineNumber } from "line-number.slint";
+
+export struct LineRow { content: string, shown: bool }
+
+export global Theme {
+    in-out property <color> surface: #191211;
+    in-out property <color> container: #251d1b;
+    in-out property <color> elevated: #332825;
+    in-out property <color> text: #f1dfdb;
+    in-out property <color> muted: #d8c2bd;
+    in-out property <color> accent: #ffb4a8;
+    in-out property <color> on-accent: #561e16;
+    in-out property <color> outline: #53433f;
+}
+
+// Use one fixed line box; the half-pixel offset balances the 11px glyph band.
+component StatusLabel inherits Rectangle {
+    in property <string> text;
+    in property <color> text-color: Theme.muted;
+    preferred-width: label.preferred-width;
+    min-width: 0px;
+    label := Text {
+        text: root.text;
+        color: root.text-color;
+        font-size: 11px;
+        width: parent.width;
+        height: parent.height;
+        y: -1.5px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+global Motion { in-out property <bool> enabled: true; }
+
+component Action inherits Rectangle {
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> menu-row: false;
+    in property <bool> reserve-check: false;
+    in property <bool> checked: false;
+    in property <bool> outlined: false;
+    in property <bool> filled: false;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-width: root.menu-row ? 0px : caption.preferred-width + 28px;
+    min-height: 36px;
+    preferred-height: 36px;
+    max-height: 36px;
+    preferred-width: caption.preferred-width + 28px;
+    horizontal-stretch: root.menu-row ? 1 : 0;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: root.outlined ? 1px : 0px;
+    border-color: Theme.outline;
+    background: !enabled ? transparent : filled ? Theme.accent : touch.pressed ? Theme.accent.with-alpha(0.22) : active ? Theme.accent.with-alpha(0.14) : touch.has-hover ? Theme.accent.with-alpha(0.12) : transparent;
+    animate background { duration: Motion.enabled ? 150ms : 0ms; }
+    opacity: enabled ? 1 : 0.4;
+    Text {
+        x: 10px; y: 0px; width: 18px; height: parent.height;
+        text: root.checked ? "✓" : "";
+        color: Theme.accent; font-size: 13px;
+        horizontal-alignment: center; vertical-alignment: center;
+        visible: root.reserve-check;
+    }
+    caption := Text {
+        x: root.menu-row ? (root.reserve-check ? 36px : 12px) : 0px;
+        y: 0px; height: parent.height;
+        width: parent.width - self.x - (root.menu-row ? 12px : 0px) - (root.shortcut == "" ? 0px : key-label.preferred-width + 16px);
+        text: root.label;
+        color: root.filled ? Theme.on-accent : Theme.text;
+        font-size: 13px;
+        font-weight: root.filled ? 600 : 400;
+        horizontal-alignment: root.menu-row ? left : center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    key-label := Text {
+        x: parent.width - self.width - 12px; y: 0px;
+        width: self.preferred-width; height: parent.height;
+        text: root.shortcut; color: Theme.muted; font-size: 12px;
+        horizontal-alignment: right; vertical-alignment: center;
+    }
+    touch := TouchArea { x: 0px; y: 0px; width: root.width; height: root.height; enabled: root.enabled; clicked => { root.clicked(); } }
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+}
+
+component MenuTab inherits Action {
+    min-width: 56px; max-width: 56px;
+    min-height: 28px; preferred-height: 28px; max-height: 28px;
+}
+
+component MenuAction inherits Action {
+    menu-row: true;
+}
+
+component Field inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder-text;
+    callback accepted;
+    min-width: 100px;
+    min-height: 40px;
+    background: Theme.surface;
+    border-radius: 8px;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.outline;
+    forward-focus: input;
+    Rectangle {
+        x: 12px; y: 0px; width: parent.width - 24px; height: parent.height; clip: true;
+        Text { x: 0px; y: 0px; width: parent.width; height: parent.height; horizontal-alignment: left; text: root.text == "" ? root.placeholder-text : ""; color: Theme.muted; font-size: 13px; vertical-alignment: center; }
+        input := TextInput {
+            width: max(parent.width, self.preferred-width);
+            height: parent.height;
+            vertical-alignment: center;
+            font-size: 13px; color: Theme.text;
+            selection-background-color: Theme.accent.with-alpha(0.28);
+            selection-foreground-color: Theme.text;
+            accepted => { root.accepted(); }
+            cursor-position-changed(pos) => {
+                if pos.x + self.x < 0px { self.x = -pos.x; }
+                else if pos.x + self.x > parent.width - 2px { self.x = parent.width - pos.x - 2px; }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: (root.dirty ? "● " : "") + root.document-name + " — RPad";
+    icon: @image-url("../assets/rpad.svg");
+    preferred-width: 980px;
+    preferred-height: 700px;
+    min-width: 540px;
+    min-height: 360px;
+    background: Theme.surface;
+    in-out property <string> ui-font: "Noto Sans";
+    default-font-family: root.ui-font;
+    default-font-size: 14px;
+    forward-focus: shortcuts;
+
+
+    in-out property <string> document-text <=> editor.text;
+    in-out property <string> document-name: "Untitled";
+    in-out property <string> document-path;
+    in-out property <bool> dirty;
+    in-out property <bool> dark-theme: true;
+    changed dark-theme => { Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light; }
+    in-out property <string> status: "Ready";
+    in-out property <string> position-label: "Ln 1, Col 1";
+    in-out property <string> format-label: "UTF-8 · LF";
+    in-out property <[LineRow]> document-lines: [];
+    in-out property <int> active-lines;
+    in-out property <int> line-revision;
+    in-out property <string> editor-font: "Noto Sans Mono";
+    in-out property <int> editor-font-weight: 400;
+    in-out property <bool> wrap-lines: true;
+    in-out property <bool> show-lines: true;
+    in-out property <bool> smooth-caret: true;
+    in-out property <int> font-pixels: 16;
+    changed font-pixels => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
+    changed wrap-lines => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
+    in-out property <bool> find-open;
+    in-out property <string> search-text <=> search.text;
+    in-out property <string> replacement-text <=> replacement.text;
+    in-out property <string> search-status;
+    in-out property <int> menu: 0;
+    out property <bool> caret-focused: editor.has-focus;
+    out property <int> cursor-offset: editor.cursor-position-byte-offset;
+    out property <int> anchor-offset: editor.anchor-position-byte-offset;
+    out property <length> caret-x: 0px;
+    out property <length> caret-y: 0px;
+    out property <length> smooth-x: 0px;
+    out property <length> smooth-y: 0px;
+    out property <float> blink: 1;
+    private property <bool> blink-low;
+    private property <int> blink-rest: 2;
+    private property <length> line-height: metrics.preferred-height;
+    private property <duration> last-caret-tick;
+    private property <bool> caret-moving: abs(root.caret-x - root.smooth-x) > 0.01px || abs(root.caret-y - root.smooth-y) > 0.01px;
+    changed smooth-caret => {
+        Motion.enabled = root.smooth-caret;
+        if !root.smooth-caret { root.smooth-x = root.caret-x; root.smooth-y = root.caret-y; }
+    }
+
+    public function move-caret(x: length, y: length) {
+        if !root.caret-moving { root.last-caret-tick = animation-tick(); }
+        root.caret-x = x; root.caret-y = y;
+        if !root.smooth-caret || !editor.has-focus {
+            root.smooth-x = x; root.smooth-y = y;
+        }
+    }
+
+    Timer {
+        interval: 8ms;
+        running: root.smooth-caret && root.caret-moving && editor.has-focus;
+        triggered => {
+            let now = animation-tick();
+            let dt = max(0, (now - root.last-caret-tick) / 1ms);
+            root.last-caret-tick = now;
+            // One time-based exponential lerp for both axes, even when retargeted.
+            let alpha = 1 - exp(-dt / 28);
+            root.smooth-x += (root.caret-x - root.smooth-x) * alpha;
+            root.smooth-y += (root.caret-y - root.smooth-y) * alpha;
+            if abs(root.caret-x - root.smooth-x) < 0.01px { root.smooth-x = root.caret-x; }
+            if abs(root.caret-y - root.smooth-y) < 0.01px { root.smooth-y = root.caret-y; }
+        }
+    }
+    animate blink { duration: root.smooth-caret ? 360ms : 0ms; easing: ease-in-out; }
+
+    in-out property <int> dialog-kind;
+    in-out property <string> dialog-title;
+    in-out property <string> dialog-body;
+    in-out property <bool> io-busy;
+    callback dialog-response(string);
+    changed dialog-kind => {
+        if root.dialog-kind > 0 { modal.focus(); } else { editor.focus(); }
+    }
+    callback action(string);
+    callback edited;
+    callback cursor-moved;
+    callback find-next(bool);
+    callback replace-text(bool);
+    public function select-range(start: int, end: int) { editor.set-selection-offsets(start, end); editor.focus(); }
+    public function focus-editor() { editor.focus(); }
+    callback history-command(bool);
+    callback history-reset;
+    callback insert-at-caret(string);
+    public function edit-command(command: string) {
+        if command == "undo" { root.history-command(false); }
+        if command == "redo" { root.history-command(true); }
+        if command == "cut" { editor.cut(); }
+        if command == "copy" { editor.copy(); }
+        if command == "paste" { editor.paste(); }
+        if command == "select-all" { editor.select-all(); }
+        editor.focus(); root.menu = 0;
+    }
+    public function toggle-find() { if root.find-open { root.find-open = false; editor.focus(); } else { root.open-find(); } }
+    public function open-find() { root.find-open = true; root.menu = 0; search.focus(); }
+
+    Timer {
+        interval: 600ms;
+        running: editor.has-focus;
+        triggered => {
+            if root.blink-rest > 0 { root.blink-rest -= 1; root.blink = 1; }
+            else { root.blink-low = !root.blink-low; root.blink = root.blink-low ? 0.08 : 1; }
+        }
+    }
+    metrics := Text { visible: false; text: "M"; font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px; }
+
+    shortcuts := FocusScope {
+        forward-focus: editor;
+        capture-key-pressed(event) => {
+            if root.io-busy { return accept; }
+            return reject;
+        }
+        key-pressed(event) => {
+            if event.modifiers.control {
+                if event.text.to-lowercase() == "s" { root.action(event.modifiers.shift ? "save-as" : "save"); return accept; }
+                if event.text.to-lowercase() == "o" { root.action("open"); return accept; }
+                if event.text.to-lowercase() == "n" { root.action("new"); return accept; }
+                if event.text.to-lowercase() == "q" { root.action("quit"); return accept; }
+                if event.text.to-lowercase() == "f" || event.text.to-lowercase() == "h" { root.open-find(); return accept; }
+            }
+            if event.text == Key.Escape { root.menu = 0; root.find-open = false; editor.focus(); return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            spacing: 0px;
+            Rectangle {
+                height: 36px; background: Theme.container;
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 4px;
+                    MenuTab { label: "File"; active: root.menu == 1; clicked => { root.menu = root.menu == 1 ? 0 : 1; } }
+                    MenuTab { label: "Edit"; active: root.menu == 2; clicked => { root.menu = root.menu == 2 ? 0 : 2; } }
+                    MenuTab { label: "View"; active: root.menu == 3; clicked => { root.menu = root.menu == 3 ? 0 : 3; } }
+                    Rectangle { horizontal-stretch: 1; }
+                    MenuTab { label: "Find"; active: root.find-open; clicked => { root.toggle-find(); } }
+                }
+            }
+            Rectangle {
+                visible: root.find-open;
+                height: root.find-open ? 104px : 0px; background: Theme.container;
+                VerticalLayout {
+                    padding: 8px; padding-left: 16px; padding-right: 16px; spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        search := Field { placeholder-text: "Find in document"; accepted => { root.find-next(false); } }
+                        Text { text: root.search-status; color: Theme.muted; font-size: 11px; vertical-alignment: center; min-width: 72px; }
+                        Action { label: "Previous"; clicked => { root.find-next(true); } }
+                        Action { label: "Next"; clicked => { root.find-next(false); } }
+                        Action { label: "Close"; clicked => { root.find-open = false; editor.focus(); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        replacement := Field { placeholder-text: "Replace with"; accepted => { root.replace-text(false); } }
+                        Action { label: "Replace"; clicked => { root.replace-text(false); } }
+                        Action { label: "Replace all"; clicked => { root.replace-text(true); } }
+                    }
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1; vertical-stretch: 1;
+                clip: true;
+                Rectangle {
+                    x: 0px; y: 0px;
+                    width: root.show-lines ? 54px : 0px; height: parent.height;
+                    background: Theme.container.with-alpha(0.38);
+                    clip: true;
+                    VerticalLayout {
+                        x: 0px; y: 20px + scroll.content-y; width: parent.width;
+                        spacing: 0px;
+                        for line[index] in root.document-lines: Rectangle {
+                            height: max(root.line-height, measurement.preferred-height);
+                            AnimatedLineNumber {
+                                shown: line.shown;
+                                animated: root.smooth-caret;
+                                x: 0px; y: 0px; width: parent.width - 12px; height: root.line-height;
+                                text: index + 1;
+                                font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;
+                                color: Theme.muted.with-alpha(0.55); horizontal-alignment: right;
+                            }
+                            measurement := Text {
+                                visible: false; text: line.content == "" ? " " : line.content;
+                                width: editor.width;
+                                wrap: root.wrap-lines ? word-wrap : no-wrap;
+                                font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;
+                            }
+                        }
+                    }
+                }
+                scroll := ScrollView {
+                    thumb-color: Theme.muted.with-alpha(0.45);
+                    animated: root.smooth-caret;
+                    y: 0px;
+                    x: root.show-lines ? 54px : 0px;
+                    width: parent.width - self.x;
+                    height: parent.height;
+                    content-width: root.wrap-lines ? self.visible-width : max(self.visible-width, editor.preferred-width + 48px);
+                    content-height: max(self.visible-height, editor.preferred-height + 40px);
+                    editor := TextInput {
+                        x: 22px; y: 20px;
+                        width: root.wrap-lines ? max(1px, scroll.visible-width - 44px) : max(scroll.visible-width - 44px, self.preferred-width);
+                        height: max(scroll.visible-height - 40px, self.preferred-height);
+                        font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;
+                        color: Theme.text;
+                        single-line: false;
+                        wrap: root.wrap-lines ? word-wrap : no-wrap;
+                        enabled: root.dialog-kind == 0 && !root.io-busy;
+                        text-cursor-width: root.smooth-caret ? 0px : -1px;
+                        selection-background-color: Theme.accent.with-alpha(0.28);
+                        selection-foreground-color: Theme.text;
+                        page-height: scroll.visible-height;
+                        changed has-focus => { root.last-caret-tick = animation-tick(); }
+                        changed width => { self.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
+                        edited => { root.edited(); }
+                        cursor-position-changed(pos) => {
+                            root.move-caret(pos.x, pos.y);
+                            root.blink = 1; root.blink-low = false; root.blink-rest = 1;
+                            if pos.x + self.x + scroll.content-x < 12px {
+                                scroll.content-x = min(0px, -pos.x - self.x + 12px);
+                            } else if pos.x + self.x + scroll.content-x > scroll.visible-width - 20px {
+                                scroll.content-x = min(0px, scroll.visible-width - pos.x - self.x - 20px);
+                            }
+                            if pos.y + self.y + scroll.content-y < 8px {
+                                scroll.content-y = min(0px, -pos.y - self.y + 8px);
+                            } else if pos.y + self.y + scroll.content-y > scroll.visible-height - root.line-height - 12px {
+                                scroll.content-y = min(0px, scroll.visible-height - pos.y - self.y - root.line-height - 12px);
+                            }
+                            root.cursor-moved();
+                        }
+                        key-pressed(event) => {
+                            if event.text == Key.Tab && !event.modifiers.shift && !event.modifiers.control { root.insert-at-caret("\u{0009}"); return accept; }
+                            if event.modifiers.control {
+                                if event.text.to-lowercase() == "z" { root.history-command(event.modifiers.shift); return accept; }
+                                if event.text.to-lowercase() == "y" { root.history-command(true); return accept; }
+                                if event.text.to-lowercase() == "s" { root.action(event.modifiers.shift ? "save-as" : "save"); return accept; }
+                                if event.text.to-lowercase() == "o" { root.action("open"); return accept; }
+                                if event.text.to-lowercase() == "n" { root.action("new"); return accept; }
+                                if event.text.to-lowercase() == "q" { root.action("quit"); return accept; }
+                                if event.text.to-lowercase() == "f" || event.text.to-lowercase() == "h" { root.open-find(); return accept; }
+                                if event.text == "+" || event.text == "=" { root.font-pixels = min(36, root.font-pixels + 1); return accept; }
+                                if event.text == "-" { root.font-pixels = max(10, root.font-pixels - 1); return accept; }
+                                if event.text == "0" { root.font-pixels = 16; return accept; }
+                            }
+                            if event.text == Key.Escape { root.menu = 0; root.find-open = false; return accept; }
+                            return reject;
+                        }
+                    }
+                    Rectangle {
+                        x: editor.x + root.smooth-x; y: editor.y + root.smooth-y;
+                        width: 2px; height: root.line-height;
+                        border-radius: 1px; background: Theme.accent;
+                        opacity: root.blink;
+                        visible: editor.has-focus && root.cursor-offset == root.anchor-offset;
+                    }
+                }
+            }
+            Rectangle {
+                height: 28px;
+                vertical-stretch: 0;
+                background: Theme.container;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 18px;
+                    ready-label := StatusLabel { text: root.status; horizontal-stretch: 1; }
+                    StatusLabel { text: root.position-label; horizontal-stretch: 0; }
+                    StatusLabel { text: root.format-label; horizontal-stretch: 0; }
+                    StatusLabel { text: root.wrap-lines ? "Wrap" : "No wrap"; text-color: Theme.accent; horizontal-stretch: 0; }
+                }
+            }
+        }
+        if root.menu != 0: TouchArea { clicked => { root.menu = 0; } }
+        if root.menu != 0: Rectangle {
+            x: 8px + (root.menu - 1) * 60px; y: 36px;
+            width: 260px;
+            height: root.menu == 1 ? 204px : root.menu == 2 ? 280px : 242px;
+            background: Theme.container; border-radius: 10px;
+            border-width: 0px;
+            VerticalLayout {
+                padding: 8px; spacing: 2px;
+                if root.menu == 1: MenuAction { label: "New"; shortcut: "Ctrl + N"; clicked => { root.action("new"); } }
+                if root.menu == 1: MenuAction { label: "Open…"; shortcut: "Ctrl + O"; clicked => { root.action("open"); } }
+                if root.menu == 1: MenuAction { label: "Save"; shortcut: "Ctrl + S"; clicked => { root.action("save"); } }
+                if root.menu == 1: MenuAction { label: "Save as…"; shortcut: "Ctrl + Shift + S"; clicked => { root.action("save-as"); } }
+                if root.menu == 1: MenuAction { label: "Quit"; shortcut: "Ctrl + Q"; clicked => { root.action("quit"); } }
+                if root.menu == 2: MenuAction { label: "Undo"; shortcut: "Ctrl + Z"; clicked => { root.edit-command("undo"); } }
+                if root.menu == 2: MenuAction { label: "Redo"; shortcut: "Ctrl + Shift + Z"; clicked => { root.edit-command("redo"); } }
+                if root.menu == 2: MenuAction { label: "Cut"; shortcut: "Ctrl + X"; clicked => { root.edit-command("cut"); } }
+                if root.menu == 2: MenuAction { label: "Copy"; shortcut: "Ctrl + C"; clicked => { root.edit-command("copy"); } }
+                if root.menu == 2: MenuAction { label: "Paste"; shortcut: "Ctrl + V"; clicked => { root.edit-command("paste"); } }
+                if root.menu == 2: MenuAction { label: "Select all"; shortcut: "Ctrl + A"; clicked => { root.edit-command("select-all"); } }
+                if root.menu == 2: MenuAction { label: "Find / replace"; shortcut: "Ctrl + F"; clicked => { root.open-find(); } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Word wrap"; checked: root.wrap-lines; clicked => { root.wrap-lines = !root.wrap-lines; } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Line numbers"; checked: root.show-lines; clicked => { root.show-lines = !root.show-lines; } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Smooth animations"; checked: root.smooth-caret; clicked => { root.smooth-caret = !root.smooth-caret; } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Larger text"; shortcut: "Ctrl + Plus"; clicked => { root.font-pixels = min(36, root.font-pixels + 1); } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Smaller text"; shortcut: "Ctrl + −"; clicked => { root.font-pixels = max(10, root.font-pixels - 1); } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "About RPad"; clicked => { root.action("about"); } }
+            }
+        }
+    }
+    if root.io-busy: Rectangle {
+        background: Theme.surface.with-alpha(0.55);
+        TouchArea {}
+        Text { text: "Waiting for file operation…"; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    modal := FocusScope {
+        visible: root.dialog-kind > 0;
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.dialog-response("cancel"); }
+            if event.text == Key.Return { root.dialog-response(root.dialog-kind == 1 ? "save" : "close"); }
+            return accept;
+        }
+        Rectangle {
+            background: #0008;
+            TouchArea {}
+            Rectangle {
+                width: min(parent.width - 32px, 440px);
+                height: root.dialog-kind == 1 ? 236px : 252px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: Theme.container;
+                border-radius: 16px;
+                border-width: 0px;
+                VerticalLayout {
+                    padding: 24px; spacing: 16px;
+                    Rectangle {
+                        vertical-stretch: 0;
+                        height: heading.preferred-height + heading.font-metrics.cap-height - heading.font-metrics.ascent;
+                        heading := Text {
+                            text: root.dialog-title;
+                            color: Theme.text;
+                            font-size: 22px;
+                            font-weight: 600;
+                            width: parent.width;
+                            height: self.preferred-height;
+                            y: self.font-metrics.cap-height - self.font-metrics.ascent;
+                        }
+                    }
+                    Text { text: root.dialog-body; color: Theme.muted; font-size: 14px; wrap: word-wrap; vertical-alignment: top; vertical-stretch: 1; }
+                    HorizontalLayout {
+                        spacing: 8px; alignment: end;
+                        if root.dialog-kind == 1: Action { min-width: 96px; label: "Cancel"; clicked => { root.dialog-response("cancel"); } }
+                        if root.dialog-kind == 1: Action { min-width: 96px; label: "Discard"; clicked => { root.dialog-response("discard"); } }
+                        Action { min-width: 96px; label: root.dialog-kind == 1 ? "Save" : "Close"; filled: true; clicked => { root.dialog-response(root.dialog-kind == 1 ? "save" : "close"); } }
+                    }
+                }
+            }
+        }
+    }
+
+}

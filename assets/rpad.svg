@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">RPad</title>
+  <desc id="desc">A red R on a dark rounded tile, paired with a folded text document and an insertion caret.</desc>
+  <defs>
+    <linearGradient id="tile" x1="72" y1="24" x2="438" y2="496" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#272228"/><stop offset="1" stop-color="#100d12"/>
+    </linearGradient>
+    <linearGradient id="red" x1="150" y1="110" x2="370" y2="405" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff9382"/><stop offset=".42" stop-color="#ff4a59"/><stop offset="1" stop-color="#cf1744"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="122" y1="81" x2="389" y2="426" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffcfbd" stop-opacity=".13"/><stop offset="1" stop-color="#ff9382" stop-opacity=".04"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="75" y1="26" x2="421" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".18"/><stop offset="1" stop-color="#fff" stop-opacity=".02"/>
+    </linearGradient>
+    <path id="r" fill-rule="evenodd" d="M150 130H266C324 130 354 158 354 205C354 241 336 266 305 277L373 382H294L235 287H219V382H150ZM219 187V231H262C277 231 286 223 286 209C286 195 277 187 262 187Z"/>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#tile)"/>
+  <rect x="9" y="9" width="494" height="494" rx="111" fill="none" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M143 79H327L391 143V405Q391 429 367 429H143Q119 429 119 405V103Q119 79 143 79Z" fill="url(#paper)" stroke="#ffd0c1" stroke-opacity=".18" stroke-width="3"/>
+  <path d="M327 80V123Q327 143 347 143H390" fill="#ffd0c1" fill-opacity=".08" stroke="#ffd0c1" stroke-opacity=".16" stroke-width="3"/>
+  <use href="#r" transform="translate(0 5)" fill="#720d29" opacity=".8"/>
+  <use href="#r" fill="url(#red)"/>
+  <path d="M151 131H266C311 131 340 150 350 181" fill="none" stroke="#ffd5c7" stroke-opacity=".6" stroke-width="3"/>
+  <path d="M354 299V352M347 299H361M347 352H361" fill="none" stroke="#ffd1bc" stroke-width="5" stroke-linecap="round"/>
+</svg>
