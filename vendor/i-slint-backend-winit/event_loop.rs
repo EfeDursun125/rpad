@@ -264,6 +264,21 @@ impl winit::application::ApplicationHandler<SlintEvent> for EventLoopState {
             event_loop.set_control_flow(ControlFlow::wait_duration(next_timer));
         }
 
+        let redraw_deadline = self.shared_backend_data.active_windows.borrow().values()
+            .filter_map(|window| window.upgrade())
+            .filter_map(|window| window.dispatch_deferred_redraw())
+            .min();
+
+        if let Some(deadline) = redraw_deadline {
+            match event_loop.control_flow() {
+                ControlFlow::Wait => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
+                ControlFlow::WaitUntil(current) if deadline < current => {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+                }
+                _ => {}
+            }
+        }
+
         if self.pumping_events_instantly {
             event_loop.set_control_flow(ControlFlow::Poll);
         }

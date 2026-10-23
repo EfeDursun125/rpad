@@ -1,12 +1,14 @@
 name: Packages
 on:
   workflow_dispatch:
+  create:
   push:
     tags: ['v*']
 permissions:
   contents: read
 jobs:
   windows:
+    if: github.event_name != 'create' || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,11 +20,15 @@ jobs:
       - run: python scripts/package-source.py
       - run: python scripts/collect-licenses.py
       - run: python scripts/package-windows.py
+      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.0-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-windows-x86_64
-          path: dist/RPad-0.1.0-windows-x86_64.zip
+          path: |
+            dist/RPad-0.1.0-windows-x86_64.zip
+            dist/RPad-0.1.0-windows-x86_64.exe
   appimage:
+    if: github.event_name != 'create' || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -40,11 +46,46 @@ jobs:
           ./scripts/build-appdir.sh
           cp -r dist/licenses target/RPad.AppDir/usr/share/doc/rpad/
           cp dist/*sources.tar.gz dist/RPad-0.1.0-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
-          curl -fL -o /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /tmp/appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION=0.1.0 /tmp/appimagetool --no-appstream target/RPad.AppDir dist/RPad-0.1.0-x86_64.AppImage
+          ./scripts/build-appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.0-x86_64.AppImage --version
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-AppImage-x86_64
-          path: dist/RPad-0.1.0-x86_64.AppImage
+          path: |
+            dist/RPad-0.1.0-x86_64.AppImage
+            dist/RPad-0.1.0-source.tar.gz
+            dist/third-party-sources.tar.gz
+  release:
+    needs: [windows, appimage]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          tag="${RELEASE_REF#release/}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          cd artifacts
+          sha256sum *.AppImage *.exe *.zip *.tar.gz > SHA256SUMS
+          printf '%s\n' \
+            'A small, calm text editor, made for personal use.' \
+            '' \
+            'Linux: download the AppImage and mark it executable.' \
+            'Windows: download the EXE, or use the ZIP for the installer, notices and source.' \
+            '' \
+            'Includes display-aware frame pacing capped at 180 FPS and verified AppImage tooling.' \
+            > release-notes.md
+          gh release create "$tag" --target "$RELEASE_COMMIT" --title "RPad ${tag#v}" \
+            --notes-file release-notes.md --draft \
+            *.AppImage *.exe *.zip *.tar.gz SHA256SUMS
+          gh release edit "$tag" --draft=false

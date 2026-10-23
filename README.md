@@ -2,10 +2,6 @@
 
 A small, calm text editor, made for personal use. Built with Rust and Slint, RPad combines Leafpad-style simplicity with Material 3 surfaces, system colors and smooth text animations.
 
-```sh
-cargo run --release -- notes.txt
-```
-
 ## Installation
 
 Linux builds require a current stable Rust toolchain, a C/C++ compiler, pkg-config, Fontconfig and OpenGL/EGL development libraries. File dialogs require `xdg-desktop-portal` and a working desktop-specific portal backend. Save confirmations, errors and About are drawn inside RPad; file selection and disk operations run on background threads. Portal theme detection uses `gdbus`; KDE colors are read directly.
@@ -15,7 +11,6 @@ Run the installer as your normal user:
 ```sh
 ./install.sh
 rpad ~/notes.txt
-sudo rpad /etc/systemd/zram-generator.conf
 ```
 
 The installer builds a release binary first, then requests sudo only for installation when necessary. The default prefix is `/usr/local`. It also installs the application icon and desktop entry. Override the destination with `PREFIX=/your/prefix ./install.sh`.

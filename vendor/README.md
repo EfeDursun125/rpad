@@ -34,7 +34,7 @@ Selection highlights and selected-glyph clipping share interpolated per-visible-
 
 `i-slint-backend-winit` and `i-slint-renderer-femtovg` are vendored from the Slint 1.18.1 crates.io packages. Original copyright notices and LICENSES are retained. RPad enables FemtoVG/WGPU by default; the OpenGL renderer remains selectable with `SLINT_BACKEND=winit-femtovg`.
 
-The backend limits render starts to the current monitor refresh rate, capped at 180 Hz, using monotonic time and coalesced one-shot timers. Missing/invalid monitor data falls back to 60 Hz. Fractional intervals are rounded upward. WGPU chooses Mailbox only when advertised by the surface, otherwise FIFO, and preserves the choice on resize. Maximum queued frame latency is one.
+The backend limits render starts to the current monitor refresh rate, capped at 180 Hz, using monotonic time and coalesced nanosecond event-loop deadlines. Missing/invalid monitor data falls back to 60 Hz. Fractional intervals are rounded upward to nanoseconds, without millisecond timer quantization. WGPU chooses Mailbox only when advertised by the surface, otherwise FIFO, and preserves the choice on resize. Maximum queued frame latency is one.
 
 Selection spans are matched by paragraph, line and within-line ordinal, so adding an earlier selected row does not restart existing rows. New backward selections grow from the right edge.
 

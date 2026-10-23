@@ -382,7 +382,7 @@ pub struct WinitWindowAdapter {
     pub(crate) self_weak: Weak<Self>,
     pending_redraw: Cell<bool>,
     last_render_started: Cell<Option<std::time::Instant>>,
-    frame_limit_timer: corelib::timers::Timer,
+    redraw_deadline: Cell<Option<std::time::Instant>>,
     constraints: Cell<corelib::window::LayoutConstraints>,
     /// Indicates if the window is shown, from the perspective of the API user.
     shown: Cell<WindowVisibility>,
@@ -481,7 +481,7 @@ impl WinitWindowAdapter {
             self_weak: self_weak.clone(),
             pending_redraw: Default::default(),
             last_render_started: Default::default(),
-            frame_limit_timer: Default::default(),
+            redraw_deadline: Default::default(),
             constraints: Default::default(),
             shown: Default::default(),
             window_level: Default::default(),
@@ -852,21 +852,17 @@ impl WinitWindowAdapter {
             .and_then(|monitor| monitor.refresh_rate_millihertz());
         let interval = crate::frame_pacing::render_interval(refresh);
         if let Some(last) = self.last_render_started.get() {
-            if let Some(wait) = interval.checked_sub(now.saturating_duration_since(last)) {
-                if !self.frame_limit_timer.running() {
-                    let weak = self.self_weak.clone();
-                    // Slint timers use milliseconds: round up, never exceed the cap.
-                    let delay = std::time::Duration::from_millis(wait.as_nanos().div_ceil(1_000_000) as u64);
-                    self.frame_limit_timer.start(corelib::timers::TimerMode::SingleShot, delay, move || {
-                        if let Some(window) = weak.upgrade().and_then(|adapter| adapter.winit_window()) {
-                            window.request_redraw();
-                        }
-                    });
-                }
+            let deadline = last + interval;
+
+            if now < deadline {
+                self.redraw_deadline.set(Some(deadline));
+                self.pending_redraw.set(true);
+
                 return Ok(());
             }
         }
-        self.frame_limit_timer.stop();
+
+        self.redraw_deadline.set(None);
         self.last_render_started.set(Some(now));
         self.pending_redraw.set(false);
 
@@ -1778,8 +1774,26 @@ impl WinitWindowAdapter {
         self.shown.get()
     }
 
-    pub(crate) fn pending_redraw(&self) -> bool {
-        self.pending_redraw.get()
+    pub(crate) fn dispatch_deferred_redraw(&self) -> Option<std::time::Instant> {
+        if matches!(self.shown.get(), WindowVisibility::Hidden) {
+            self.redraw_deadline.set(None);
+
+            return None;
+        }
+
+        let deadline = self.redraw_deadline.get()?;
+
+        if std::time::Instant::now() >= deadline {
+            self.redraw_deadline.set(None);
+
+            if let Some(window) = self.winit_window() {
+                window.request_redraw();
+            }
+
+            return None;
+        }
+
+        Some(deadline)
     }
 
     pub async fn async_winit_window(
