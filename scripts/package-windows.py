@@ -6,7 +6,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(__file__).resolve().parent.parent
 binary = Path(os.environ.get('RPAD_WINDOWS_BINARY', root / 'target/release/rpad.exe'))
-output = root / 'dist/RPad-0.1.0-windows-x86_64.zip'
+output = root / 'dist/RPad-0.1.1-windows-x86_64.zip'
 output.parent.mkdir(exist_ok=True)
 files = {
     binary: 'RPad.exe',
@@ -15,7 +15,7 @@ files = {
 for name in ('README.md', 'LICENSE', 'THIRD_PARTY.md'):
     files[root / name] = name
 
-for name in ('RPad-0.1.0-source.tar.gz', 'third-party-sources.tar.gz'):
+for name in ('RPad-0.1.1-source.tar.gz', 'third-party-sources.tar.gz'):
     files[root / 'dist' / name] = name
 
 for path in (root / 'dist/licenses').rglob('*'):

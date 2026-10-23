@@ -81,7 +81,7 @@ impl Controller {
             "about" => self.dialog(
                 3,
                 "RPad",
-                "A small, calm text editor, made for personal use.\nRust · Slint · Material 3\n\n\nEfeDursun125\nVersion 0.1.0 · GPL-3.0-only",
+                "A small, calm text editor, made for personal use.\nRust · Slint · Material 3\n\n\nEfeDursun125\nVersion 0.1.1 · GPL-3.0-only",
             ),
             _ => {}
         }

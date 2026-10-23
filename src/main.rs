@@ -187,6 +187,29 @@ fn selection(ui: &AppWindow) -> history::Selection {
         cursor: ui.get_cursor_offset(),
     }
 }
+fn bind_line_metrics(ui: &AppWindow) {
+    let weak = ui.as_weak();
+
+    ui.on_editor_line_height(move |family, weight, pixel_size| {
+        let Some(ui) = weak.upgrade() else {
+            return 0.0;
+        };
+
+        let adapter = i_slint_core::window::WindowInner::from_pub(ui.window()).window_adapter();
+        let font = i_slint_core::graphics::FontRequest {
+            family: Some(family),
+            weight: Some(weight),
+            pixel_size: Some(i_slint_core::lengths::LogicalLength::new(pixel_size)),
+            ..Default::default()
+        };
+
+        adapter
+            .renderer()
+            .text_line_height(font)
+            .map_or(0.0, |height| height.get())
+    });
+}
+
 fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let history = Rc::new(RefCell::new(history::History::new(
         ui.get_document_text().to_string(),
@@ -301,6 +324,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Document::default()
     };
     let ui = AppWindow::new()?;
+    bind_line_metrics(&ui);
     if let Some(font) = font::detect_ui() {
         ui.set_ui_font(font.family.into());
     }
@@ -411,6 +435,104 @@ mod editor_tests {
             env!("CARGO_MANIFEST_DIR"),
             "/vendor/i-slint-backend-winit/frame_pacing.rs"
         ));
+    }
+
+    #[test]
+    #[ignore = "requires a display and SLINT_EMIT_DEBUG_INFO=1"]
+    fn real_font_gutter_matches_editor_line_positions() {
+        use i_slint_backend_testing::ElementHandle;
+
+        let ui = AppWindow::new().unwrap();
+        bind_line_metrics(&ui);
+        ui.set_smooth_caret(false);
+        ui.show().unwrap();
+
+        let test_ui = ui.clone_strong();
+        slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
+            let ui = test_ui;
+            let mut fonts = vec![
+                ("JetBrains Mono Nerd Font".to_owned(), 400),
+                ("Noto Sans Mono".to_owned(), 400),
+                ("DejaVu Sans Mono".to_owned(), 400),
+                ("Liberation Mono".to_owned(), 400),
+                ("Missing RPad Font".to_owned(), 400),
+            ];
+            if let Some(font) = font::detect() {
+                fonts.push((font.family, font.weight));
+            }
+
+            for (family, weight) in fonts {
+                ui.set_editor_font(family.clone().into());
+                ui.set_editor_font_weight(weight);
+
+                for size in [13, 16, 19] {
+                    ui.set_font_pixels(size);
+
+                    for wrap in [false, true] {
+                        ui.set_wrap_lines(wrap);
+                        let lines: Vec<String> = (1..=40)
+                            .map(|line| {
+                                if line % 3 == 0 {
+                                    String::new()
+                                } else if wrap && line % 5 == 0 {
+                                    "A long wrapped line with spaces. ".repeat(12)
+                                } else {
+                                    format!("{line} 🦀")
+                                }
+                            })
+                            .collect();
+                        let lines = std::env::var_os("RPAD_TEST_DOCUMENT")
+                            .map(|path| {
+                                std::fs::read_to_string(path)
+                                    .unwrap()
+                                    .split('\n')
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or(lines);
+                        let text = lines.join("\n");
+                        ui.set_document_text(text.clone().into());
+                        update_lines(&ui);
+                        ui.invoke_select_range(0, 0);
+                        ui.window().take_snapshot().unwrap();
+                        let numbers: Vec<_> =
+                            ElementHandle::find_by_element_id(&ui, "AppWindow::number").collect();
+                        assert!(!numbers.is_empty());
+                        let editor = ElementHandle::find_by_element_id(&ui, "AppWindow::editor")
+                            .next()
+                            .unwrap();
+                        let mut offset = 0;
+
+                        for (number, line) in numbers.iter().zip(&lines) {
+                            ui.invoke_select_range(offset, offset);
+                            let number_y = number.absolute_position().y;
+                            let text_y = editor.absolute_position().y + ui.get_caret_y();
+                            assert!((number_y - text_y).abs() < 1.1,
+                            "{family}, {size}px, wrap={wrap}, offset={offset}: gutter={number_y}, text={text_y}");
+                            offset += line.len() as i32 + 1;
+                        }
+
+                        let last_start = (text.len() - lines.last().unwrap().len()) as i32;
+                        ui.invoke_select_range(last_start, last_start);
+                        ui.window().take_snapshot().unwrap();
+                        let last_number =
+                            ElementHandle::find_by_element_id(&ui, "AppWindow::number")
+                                .last()
+                                .unwrap();
+                        let last_text_y = editor.absolute_position().y + ui.get_caret_y();
+                        assert!(
+                            (last_number.absolute_position().y - last_text_y).abs() < 1.1,
+                            "last row drift: {family}, {size}px, wrap={wrap}"
+                        );
+                    }
+                }
+            }
+
+            slint::quit_event_loop().unwrap();
+        });
+        slint::run_event_loop().unwrap();
+
+        ui.hide().unwrap();
     }
 
     #[test]

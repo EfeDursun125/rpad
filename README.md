@@ -87,7 +87,7 @@ The Windows x86-64 ZIP contains `RPad.exe`, licenses, corresponding source archi
 The Linux x86-64 AppImage is built on Ubuntu 24.04 and requires glibc 2.39 or newer. Graphics drivers and the desktop portal come from the host system. Normal execution requires FUSE. To extract and run instead:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./RPad-0.1.0-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./RPad-0.1.1-x86_64.AppImage
 ```
 
 Package generation is defined in [.github/workflows/packages.yml](.github/workflows/packages.yml). Pushing a version tag or running the workflow manually produces Windows ZIP and AppImage artifacts. Wine checks on Linux are separate from native Windows testing and do not establish compatibility on real Windows hardware.

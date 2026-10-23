@@ -20,6 +20,6 @@ printf '%s  %s\n' "$tool_sha256" "$work_dir/appimagetool" \
     "$runtime_sha256" "$work_dir/runtime" | sha256sum --check --strict
 chmod +x "$work_dir/appimagetool"
 
-APPIMAGELAUNCHER_DISABLE=1 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION=0.1.0 \
+APPIMAGELAUNCHER_DISABLE=1 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION=0.1.1 \
     "$work_dir/appimagetool" --no-appstream --runtime-file "$work_dir/runtime" \
-    target/RPad.AppDir dist/RPad-0.1.0-x86_64.AppImage
+    target/RPad.AppDir dist/RPad-0.1.1-x86_64.AppImage

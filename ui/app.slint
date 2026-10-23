@@ -178,7 +178,9 @@ export component AppWindow inherits Window {
     out property <float> blink: 1;
     private property <bool> blink-low;
     private property <int> blink-rest: 2;
-    private property <length> line-height: metrics.preferred-height;
+    pure callback editor-line-height(string, int, float) -> float;
+    private property <length> measured-line-height: root.editor-line-height(root.editor-font, root.editor-font-weight, root.font-pixels) * 1px;
+    private property <length> line-height: root.measured-line-height > 0px ? root.measured-line-height : metrics.preferred-height;
     private property <duration> last-caret-tick;
     private property <bool> caret-moving: abs(root.caret-x - root.smooth-x) > 0.01px || abs(root.caret-y - root.smooth-y) > 0.01px;
     changed smooth-caret => {
@@ -314,8 +316,9 @@ export component AppWindow inherits Window {
                         x: 0px; y: 20px + scroll.content-y; width: parent.width;
                         spacing: 0px;
                         for line[index] in root.document-lines: Rectangle {
-                            height: max(root.line-height, measurement.preferred-height);
-                            AnimatedLineNumber {
+                            // Text preferred-height is rounded up; retain the renderer's fractional advance.
+                            height: max(1, round(measurement.preferred-height / root.line-height)) * root.line-height;
+                            number := AnimatedLineNumber {
                                 shown: line.shown;
                                 animated: root.smooth-caret;
                                 x: 0px; y: 0px; width: parent.width - 12px; height: root.line-height;

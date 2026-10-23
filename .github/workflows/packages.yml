@@ -19,13 +19,13 @@ jobs:
       - run: python scripts/package-source.py
       - run: python scripts/collect-licenses.py
       - run: python scripts/package-windows.py
-      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.0-windows-x86_64.exe
+      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.1-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-windows-x86_64
           path: |
-            dist/RPad-0.1.0-windows-x86_64.zip
-            dist/RPad-0.1.0-windows-x86_64.exe
+            dist/RPad-0.1.1-windows-x86_64.zip
+            dist/RPad-0.1.1-windows-x86_64.exe
   appimage:
     runs-on: ubuntu-24.04
     steps:
@@ -43,15 +43,15 @@ jobs:
         run: |
           ./scripts/build-appdir.sh
           cp -r dist/licenses target/RPad.AppDir/usr/share/doc/rpad/
-          cp dist/*sources.tar.gz dist/RPad-0.1.0-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
+          cp dist/*sources.tar.gz dist/RPad-0.1.1-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
           ./scripts/build-appimage.sh
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.0-x86_64.AppImage --version
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.1-x86_64.AppImage --version
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-AppImage-x86_64
           path: |
-            dist/RPad-0.1.0-x86_64.AppImage
-            dist/RPad-0.1.0-source.tar.gz
+            dist/RPad-0.1.1-x86_64.AppImage
+            dist/RPad-0.1.1-source.tar.gz
             dist/third-party-sources.tar.gz
   release:
     needs: [windows, appimage]
@@ -81,7 +81,7 @@ jobs:
             'Linux: download the AppImage and mark it executable.' \
             'Windows: download the EXE, or use the ZIP for the installer, notices and source.' \
             '' \
-            'Includes display-aware frame pacing capped at 180 FPS and verified AppImage tooling.' \
+            'Fixes line-number alignment across fonts and wrapped lines. Built with optimization level 3, fat LTO and one codegen unit.' \
             > release-notes.md
           gh release create "$tag" --target "$RELEASE_COMMIT" --title "RPad ${tag#v}" \
             --notes-file release-notes.md --draft \

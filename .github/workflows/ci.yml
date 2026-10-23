@@ -36,6 +36,6 @@ jobs:
           bash -n install.sh
           desktop-file-validate packaging/rpad.desktop
           PREFIX="$RUNNER_TEMP/rpad-install" ./install.sh
-          test "$("$RUNNER_TEMP/rpad-install/bin/rpad" --version)" = "RPad 0.1.0"
+          test "$("$RUNNER_TEMP/rpad-install/bin/rpad" --version)" = "RPad 0.1.1"
           test -f "$RUNNER_TEMP/rpad-install/share/applications/rpad.desktop"
           test -f "$RUNNER_TEMP/rpad-install/share/icons/hicolor/scalable/apps/rpad.svg"
