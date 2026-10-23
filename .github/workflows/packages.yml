@@ -1,21 +1,20 @@
 name: Packages
 on:
   workflow_dispatch:
-  create:
   push:
     tags: ['v*']
+    branches: ['release/v*']
 permissions:
   contents: read
 jobs:
   windows:
-    if: github.event_name != 'create' || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked
+      - run: cargo test --release --locked
       - run: cargo build --release --locked
       - run: python scripts/package-source.py
       - run: python scripts/collect-licenses.py
@@ -28,7 +27,6 @@ jobs:
             dist/RPad-0.1.0-windows-x86_64.zip
             dist/RPad-0.1.0-windows-x86_64.exe
   appimage:
-    if: github.event_name != 'create' || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

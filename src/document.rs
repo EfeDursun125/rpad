@@ -106,11 +106,16 @@ impl Document {
 }
 
 fn absolute(path: &Path) -> io::Result<PathBuf> {
-    if path.is_absolute() {
-        Ok(path.to_owned())
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
+    let path = std::path::absolute(path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("No parent directory"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::other("No file name"))?;
+
+    // Match canonical paths even after a file is deleted (including Windows' prefix).
+    Ok(fs::canonicalize(parent)?.join(name))
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -198,6 +203,19 @@ mod tests {
         assert!(!doc.dirty("Türkçe 🦀\n"));
         assert_eq!(Document::open(&path).unwrap().text, "Türkçe 🦀\n");
     }
+    #[test]
+    fn rejects_file_created_externally_before_first_save() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        let path = dir.path().join("sub").join("..").join("new note");
+        let mut doc = Document::open(&path).unwrap();
+
+        fs::write(&path, "external").unwrap();
+
+        assert!(doc.save(&path, "mine").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
     #[test]
     fn rejects_non_utf8_and_preserves_mixed_endings() {
         let dir = tempfile::tempdir().unwrap();
