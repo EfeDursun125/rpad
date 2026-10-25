@@ -705,3 +705,115 @@ impl Layout {
         }
     }
 }
+
+impl Layout {
+    /// Paint cached tab markers only where the logical selection and its animated highlight
+    /// overlap the viewport. The source, clipboard and shaped glyphs remain untouched.
+    pub(super) fn draw_selected_tabs<R: GlyphRenderer>(
+        &self,
+        renderer: &mut R,
+        selected: Range<usize>,
+        spans: &SelectionSpans,
+        foreground: Color,
+    ) {
+        if selected.is_empty() || spans.is_empty() {
+            return;
+        }
+
+        let band = visible_band(renderer);
+        let horizontal = visible_x_range(renderer);
+        let scale = renderer.scale_factor();
+        let color = Color::from_argb_u8(
+            ((foreground.alpha() as u16 * 105) / 255) as u8,
+            foreground.red(),
+            foreground.green(),
+            foreground.blue(),
+        );
+        let Some(brush) = renderer.platform_brush_for_color(&color) else {
+            return;
+        };
+        // The highlight already contains only visible lines. Marker geometry is sorted by
+        // (line, x), so even one enormous horizontal line visits only onscreen tabs.
+        for span in &spans.0 {
+            let Some(paragraph) = self.paragraphs.get(span.paragraph) else {
+                continue;
+            };
+            if paragraph.tab_markers.is_empty() {
+                continue;
+            }
+            let top = self.y_offset + paragraph.y;
+            let x = span.x();
+            let left = x.start.max(horizontal.start.get());
+            let right = x.end.min(horizontal.end.get());
+            if left >= right {
+                continue;
+            }
+            let markers = &paragraph.tab_markers;
+            let first = markers.partition_point(|marker| {
+                marker.line < span.line || (marker.line == span.line && marker.rect.max_x() <= left)
+            });
+            for marker in &markers[first..] {
+                if marker.line != span.line || marker.rect.min_x() >= right {
+                    break;
+                }
+                let offset = paragraph.range.start + marker.offset;
+                if !selected.contains(&offset) {
+                    continue;
+                }
+                let rect = marker.rect.translate(euclid::vec2(0., top.get()));
+                if rect.max_y() < band.start.get() || rect.min_y() > band.end.get() {
+                    continue;
+                }
+                renderer.save_state();
+                let clip = PhysicalRect::new(
+                    PhysicalPoint::new(left, rect.min_y()),
+                    PhysicalSize::new(right - left, rect.height()),
+                );
+                if renderer.combine_clip(clip / scale, LogicalBorderRadius::zero()) {
+                    draw_tab_arrow(renderer, rect, brush.clone());
+                }
+                renderer.restore_state();
+            }
+        }
+    }
+}
+
+fn draw_tab_arrow<R: GlyphRenderer>(renderer: &mut R, rect: PhysicalRect, brush: R::PlatformBrush) {
+    let scale = renderer.scale_factor();
+    let unit = scale.get();
+    let available = rect.width() - 4. * unit;
+    if available < 3. * unit {
+        return;
+    }
+    let length = available.min(10. * unit);
+    let left = rect.min_x() + 2. * unit;
+    let tip = left + length;
+    let middle = rect.center().y;
+    let thickness = unit.max(1.);
+    let head = (length * 0.36).min(3.5 * unit);
+    renderer.fill_rectangle(
+        PhysicalRect::new(
+            PhysicalPoint::new(left, middle - thickness * 0.5),
+            PhysicalSize::new(length, thickness),
+        ),
+        brush.clone(),
+        PhysicalLength::zero(),
+        None,
+    );
+    // Three thin quads, independent of the user's font and its Unicode glyph coverage.
+    for angle in [-45., 45.] {
+        renderer.save_state();
+        renderer.translate(euclid::vec2(tip / unit, middle / unit));
+        renderer.rotate(angle);
+        renderer.fill_rectangle(
+            PhysicalRect::new(
+                PhysicalPoint::new(-head, -thickness * 0.5),
+                PhysicalSize::new(head, thickness),
+            ),
+            brush.clone(),
+            PhysicalLength::zero(),
+            None,
+        );
+        renderer.restore_state();
+    }
+}

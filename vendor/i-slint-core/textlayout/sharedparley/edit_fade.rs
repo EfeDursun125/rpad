@@ -118,13 +118,14 @@ pub(super) fn draw<R: GlyphRenderer>(
         }
         renderer.save_state();
         if renderer.combine_clip(rect / scale, LogicalBorderRadius::zero()) {
+            renderer.apply_opacity(alpha);
             if let Some(brush) = renderer.platform_text_fill_brush(
-                color.with_alpha(color.alpha() as f32 / 255. * alpha).into(),
+                color.into(),
                 size,
             ) {
                 let selection = renderer
                     .platform_brush_for_color(
-                        &selection_color.with_alpha(selection_color.alpha() as f32 / 255. * alpha),
+                        &selection_color,
                     )
                     .filter(|_| !selection_spans.is_empty())
                     .map(|foreground| SelectionRendering {

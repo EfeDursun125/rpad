@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-only
+%YAML 1.2
+---
+name: GDScript
+file_extensions: [gd, gdscript]
+scope: source.gdscript
+contexts:
+  main:
+    - match: '#.*$'
+      scope: comment.line.number-sign
+    - match: '\b(?:class_name|extends|class|func|signal|enum|var|const|static)\b'
+      scope: storage.type
+    - match: '\b(?:and|as|assert|await|break|breakpoint|continue|elif|else|for|if|in|is|match|not|or|pass|return|self|super|when|while|yield)\b'
+      scope: keyword.control
+    - match: '\b(?:true|false|null|PI|TAU|INF|NAN)\b'
+      scope: constant.language
+    - match: '\b(?:bool|int|float|String|StringName|NodePath|Array|Dictionary|Vector[234]i?|Color|Callable|Signal|Transform[23]D|Quaternion|Basis|Rect2i?|AABB|Packed\w+Array|void)\b'
+      scope: storage.type
+    - match: '@[A-Za-z_]\w*'
+      scope: entity.name.function
+    - match: '(?:\$|%)[A-Za-z_]\w*(?:/[A-Za-z_]\w*)*'
+      scope: variable.language
+    - match: '\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?)\b'
+      scope: constant.numeric
+    - match: '"""'
+      scope: punctuation.definition.string.begin
+      push: triple-double
+    - match: "'''"
+      scope: punctuation.definition.string.begin
+      push: triple-single
+    - match: '[&^]?"'
+      scope: punctuation.definition.string.begin
+      push: double
+    - match: "[&^]?'"
+      scope: punctuation.definition.string.begin
+      push: single
+    - match: '\b[A-Za-z_]\w*(?=\s*\()'
+      scope: entity.name.function
+  triple-double:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"""'
+      scope: punctuation.definition.string.end
+      pop: true
+  triple-single:
+    - meta_scope: string.quoted.single
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: "'''"
+      scope: punctuation.definition.string.end
+      pop: true
+  double:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"|$'
+      scope: punctuation.definition.string.end
+      pop: true
+  single:
+    - meta_scope: string.quoted.single
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: "'|$"
+      scope: punctuation.definition.string.end
+      pop: true

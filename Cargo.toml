@@ -1,6 +1,6 @@
 [package]
 name = "rpad"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "RPad: a small Material 3 text editor with smooth caret and text animations"
 license = "GPL-3.0-only"
@@ -24,6 +24,7 @@ codegen-units = 1
 strip = true
 
 [dev-dependencies]
+i-slint-core = { version = "=1.18.1", default-features = false, features = ["testing"] }
 i-slint-backend-testing = "=1.18.1"
 
 [patch.crates-io]

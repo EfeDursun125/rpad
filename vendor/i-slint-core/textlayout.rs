@@ -1115,3 +1115,6 @@ fn test_content_widths_min_never_exceeds_max() {
         }
     }
 }
+
+/// Default indentation tab stop, in monospace columns.
+pub const DEFAULT_TAB_WIDTH: usize = 4;

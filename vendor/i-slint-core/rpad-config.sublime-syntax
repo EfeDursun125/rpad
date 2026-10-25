@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: GPL-3.0-only
+%YAML 1.2
+---
+name: RPad Config
+file_extensions: [toml, ini, cfg, conf, desktop]
+scope: source.rpad-config
+contexts:
+  main:
+    - match: '[#;].*$'
+      scope: comment.line.number-sign
+    - match: '^\s*\[.*?\]'
+      scope: entity.name.section
+    - match: '^\s*[\w.\-]+(?=\s*=)'
+      scope: variable.other.member
+    - match: '"""'
+      scope: punctuation.definition.string.begin
+      push: multiline-double
+    - match: "'''"
+      scope: punctuation.definition.string.begin
+      push: multiline-single
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push: double
+    - match: "'"
+      scope: punctuation.definition.string.begin
+      push: single
+    - match: '\b(?:true|false)\b'
+      scope: constant.language
+    - match: '\b(?:0[xob][0-9a-fA-F_]+|[0-9][0-9_.]*(?:[eE][+-]?[0-9]+)?)\b'
+      scope: constant.numeric
+  double:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"'
+      pop: true
+  single:
+    - meta_scope: string.quoted.single
+    - match: "'"
+      pop: true
+  multiline-double:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"""'
+      pop: true
+  multiline-single:
+    - meta_scope: string.quoted.single
+    - match: "'''"
+      pop: true

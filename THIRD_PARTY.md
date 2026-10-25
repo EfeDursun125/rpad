@@ -18,3 +18,7 @@ Exact versions of other Rust dependencies are recorded in `Cargo.lock`; license 
 Vendored Slint 1.18.1 backend/renderer sources and the Inter test-font fixture retain their upstream license notices; origins and local patches are listed in [vendor/README.md](vendor/README.md).
 
 `ui/solid-scrollview.slint` adapts the Material ScrollView from `i-slint-compiler` 1.18.1 with solid themed thumbs and optional hover transitions. Its original copyright and license header are retained.
+
+## Syntax highlighting
+
+Syntect 5.3.0 (MIT) supplies bundled Sublime Text syntax definitions and color themes. Source: https://github.com/trishume/syntect. Its license and dependency notices are included by the release license collector.

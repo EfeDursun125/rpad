@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-only
+%YAML 1.2
+---
+name: Pawn / SourcePawn
+file_extensions: [sma, sp, pwn, pawn]
+scope: source.pawn
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin
+      push: comment
+    - match: '^\s*#\s*\w+'
+      scope: keyword.control.import
+    - match: '\b(?:assert|break|case|continue|default|delete|do|else|exit|for|if|return|sizeof|state|switch|while|view_as|tagof)\b'
+      scope: keyword.control
+    - match: '\b(?:const|decl|enum|forward|functag|function|funcenum|methodmap|native|new|operator|public|static|stock|struct|this|typedef|typeset|using|__nullable__|__intrinsics__)\b'
+      scope: storage.modifier
+    - match: '\b(?:any|bool|char|float|int|void|Float|String|Handle|Action|Plugin)\b'
+      scope: storage.type
+    - match: '\b(?:true|false|null|INVALID_HANDLE|INVALID_FUNCTION|Plugin_Continue|Plugin_Changed|Plugin_Handled|Plugin_Stop)\b'
+      scope: constant.language
+    - match: '\b(?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b'
+      scope: constant.numeric
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push: double
+    - match: "'"
+      scope: punctuation.definition.string.begin
+      push: single
+    - match: '\b[A-Za-z_]\w*(?=\s*\()'
+      scope: entity.name.function
+  comment:
+    - meta_scope: comment.block
+    - match: '\*/'
+      scope: punctuation.definition.comment.end
+      pop: true
+  double:
+    - meta_scope: string.quoted.double
+    - match: '[\\^].'
+      scope: constant.character.escape
+    - match: '"'
+      scope: punctuation.definition.string.end
+      pop: true
+  single:
+    - meta_scope: string.quoted.single
+    - match: '[\\^].'
+      scope: constant.character.escape
+    - match: "'"
+      scope: punctuation.definition.string.end
+      pop: true

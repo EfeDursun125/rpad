@@ -146,9 +146,12 @@ export component AppWindow inherits Window {
     in-out property <string> document-text <=> editor.text;
     in-out property <string> document-name: "Untitled";
     in-out property <string> document-path;
+    callback syntax-changed;
+    callback indent-lines(bool);
+    changed document-path => { root.syntax-changed(); }
     in-out property <bool> dirty;
     in-out property <bool> dark-theme: true;
-    changed dark-theme => { Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light; }
+    changed dark-theme => { Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light; root.syntax-changed(); }
     in-out property <string> status: "Ready";
     in-out property <string> position-label: "Ln 1, Col 1";
     in-out property <string> format-label: "UTF-8 · LF";
@@ -159,6 +162,8 @@ export component AppWindow inherits Window {
     in-out property <int> editor-font-weight: 400;
     in-out property <bool> wrap-lines: true;
     in-out property <bool> show-lines: true;
+    callback lines-visibility-changed;
+    changed show-lines => { root.lines-visibility-changed(); }
     in-out property <bool> smooth-caret: true;
     in-out property <int> font-pixels: 16;
     changed font-pixels => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
@@ -196,10 +201,9 @@ export component AppWindow inherits Window {
         }
     }
 
-    Timer {
-        interval: 8ms;
-        running: root.smooth-caret && root.caret-moving && editor.has-focus;
-        triggered => {
+    private property <duration> caret-frame: root.smooth-caret && root.caret-moving && editor.has-focus ? animation-tick() : 0ms;
+    changed caret-frame => {
+        if root.smooth-caret && root.caret-moving && editor.has-focus {
             let now = animation-tick();
             let dt = max(0, (now - root.last-caret-tick) / 1ms);
             root.last-caret-tick = now;
@@ -307,9 +311,9 @@ export component AppWindow inherits Window {
             Rectangle {
                 horizontal-stretch: 1; vertical-stretch: 1;
                 clip: true;
-                Rectangle {
+                if root.show-lines: Rectangle {
                     x: 0px; y: 0px;
-                    width: root.show-lines ? 54px : 0px; height: parent.height;
+                    width: 54px; height: parent.height;
                     background: Theme.container.with-alpha(0.38);
                     clip: true;
                     VerticalLayout {
@@ -376,7 +380,7 @@ export component AppWindow inherits Window {
                             root.cursor-moved();
                         }
                         key-pressed(event) => {
-                            if event.text == Key.Tab && !event.modifiers.shift && !event.modifiers.control { root.insert-at-caret("\u{0009}"); return accept; }
+                            if (event.text == Key.Tab || event.text == Key.Backtab) && !event.modifiers.control { root.indent-lines(event.modifiers.shift || event.text == Key.Backtab); return accept; }
                             if event.modifiers.control {
                                 if event.text.to-lowercase() == "z" { root.history-command(event.modifiers.shift); return accept; }
                                 if event.text.to-lowercase() == "y" { root.history-command(true); return accept; }

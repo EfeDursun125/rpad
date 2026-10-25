@@ -67,6 +67,7 @@ mod cache;
 mod draw;
 mod edit_fade;
 mod layout;
+mod memo;
 mod selection;
 mod shaping;
 #[cfg(test)]
@@ -111,8 +112,8 @@ fn with_text_layout<R>(
     let text_wrap = layout_builder.text_wrap;
     let scale_factor = layout_builder.scale_factor;
     let mut guard =
-        cached_paragraphs(cache, item_rc, text_wrap, window, &mut font_ctx, &|font_context| {
-            shape_paragraphs(text, item_rc, text_wrap, scale_factor, font_context)
+        cached_paragraphs(cache, item_rc, text_wrap, window, &mut font_ctx, &|font_context, previous| {
+            shape_paragraphs(text, item_rc, text_wrap, scale_factor, font_context, cache.map(|cache| &cache.paragraph_memo), previous)
         });
 
     let line_breaking = guard.take_line_breaking();
@@ -379,7 +380,7 @@ pub fn draw_text_input(
                 let mut selection_spans = if selection_range.is_empty() {
                     SelectionSpans::default()
                 } else {
-                    layout.selection_geometry(selection_range, &draw::visible_band(item_renderer))
+                    layout.selection_geometry(selection_range.clone(), &draw::visible_band(item_renderer))
                 };
                 if text_input.selection_motion.borrow_mut().update(&mut selection_spans, now, text_input.text_cursor_width().get() == 0., text_input.cursor_position_byte_offset() < text_input.anchor_position_byte_offset()) {
                     crate::animations::animation_tick();
@@ -412,6 +413,11 @@ pub fn draw_text_input(
                     layout.draw(item_renderer, platform_fill_brush, None, text_color, selection.as_ref());
                 } else {
                     edit_fade::draw(layout,item_renderer,size,text_color,&selection_spans,text_input.selection_foreground_color(),&fades.insertions,now);
+                }
+
+                if !text_input.single_line() && !text_input.is_password() && text_input.preedit_text().is_empty() {
+                    layout.draw_selected_tabs(item_renderer, selection_range.clone(), &selection_spans,
+                        text_input.selection_foreground_color());
                 }
 
                 if let Some(cursor_pos) = visual_representation.cursor_position {
@@ -583,7 +589,10 @@ pub fn char_size(
     item_rc: &crate::item_tree::ItemRc,
     ch: char,
 ) -> Option<LogicalSize> {
-    let font_request = text_item.font_request(item_rc);
+    char_size_for_font(font_ctx, &text_item.font_request(item_rc), ch)
+}
+
+pub(super) fn char_size_for_font(font_ctx: &mut parley::FontContext, font_request: &FontRequest, ch: char) -> Option<LogicalSize> {
     let font = font_request.query_fontique(&mut font_ctx.collection, &mut font_ctx.source_cache)?;
 
     let char_map = font.charmap()?;

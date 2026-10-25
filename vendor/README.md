@@ -39,3 +39,19 @@ The backend limits render starts to the current monitor refresh rate, capped at 
 Selection spans are matched by paragraph, line and within-line ordinal, so adding an earlier selected row does not restart existing rows. New backward selections grow from the right edge.
 
 `common/sharedfontique/Inter-VariableFont.ttf` and its license are copied from the pinned `i-slint-common` 1.18.1 package for the upstream core test fixture. Run the selection regression tests with `cargo test --manifest-path vendor/i-slint-core/Cargo.toml --features shared-parley --lib motion_tests`.
+
+RPad also shapes literal tabs at four-column stops without changing source byte offsets. TextInput syntax colors use Syntect grammars with cached per-line parser states; color-only spans preserve font settings, selection foreground and insertion opacity.
+
+Unchanged plain-text paragraphs retain their shaped glyphs and width/alignment-specific
+line breaking across edits. Reuse checks text, syntax spans, font, wrap mode, stroke,
+and display scale. A renderer-owned paragraph memo additionally reuses repeated lines;
+it is limited to 4096 entries and an estimated 32 MiB, with an independently bounded
+LRU queue. Giant paragraphs bypass that additional memo. Renderer teardown frees the
+memo; font/style changes invalidate the applicable entries. Styled text retains its
+original shaping path. Syntax caches share unchanged parser states and color vectors.
+
+Selected literal tabs display a faint, font-independent right arrow. Tab rectangles
+are cached with line breaking and sorted by visual line/x position. Painting walks
+visible selection spans and binary-searches their markers; it does not rescan text,
+reshape arrows, or traverse tabs outside the viewport on selection frames. Marker
+clipping shares the existing animated selection edges. Unselected tabs remain blank.

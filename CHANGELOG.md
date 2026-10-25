@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Add syntax highlighting for Pawn, SourcePawn, GDScript, Java, C# and CMake alongside other common formats.
+- Use four-column tab stops and show faint arrows for selected tabs.
+- Reuse shaped paragraphs, line breaking, syntax states and search matches across edits.
+- Update line numbers incrementally and avoid repeated history size scans.
+- Read the Windows theme directly through the registry.
+
 ## 0.1.1
 
 - Match line-number spacing to the renderer's fractional font metrics, including wrapped lines.

@@ -196,6 +196,34 @@ impl<T> ItemCache<T> {
             &mut map.get_mut(&component).unwrap().get_mut(&index).unwrap().data
         })
     }
+
+    /// Updates an invalid entry while allowing its owned data to be reused. No cache borrow
+    /// is held during the update or while evaluating reactive dependencies.
+    pub fn get_or_update_cache_entry_ref_with_previous(
+        &self,
+        item_rc: &ItemRc,
+        update_fn: impl FnOnce(Option<T>) -> T,
+    ) -> std::cell::RefMut<'_, T> {
+        let component = &(**item_rc.item_tree()) as *const _;
+        let index = item_rc.index();
+        let previous = self.map.borrow_mut().entry(component).or_default().remove(&index);
+        let entry = if let Some(previous) = previous {
+            let mut tracker = previous.dependency_tracker;
+            let mut data = Some(previous.data);
+            let replacement = tracker.get_or_insert_with(|| Box::pin(Default::default()))
+                .as_ref().evaluate_if_dirty(|| update_fn(data.take()));
+            crate::graphics::CachedGraphicsData {
+                data: replacement.unwrap_or_else(|| data.unwrap()),
+                dependency_tracker: tracker,
+            }
+        } else {
+            crate::graphics::CachedGraphicsData::new(|| update_fn(None))
+        };
+        self.map.borrow_mut().entry(component).or_default().insert(index, entry);
+        std::cell::RefMut::map(self.map.borrow_mut(), |map| {
+            &mut map.get_mut(&component).unwrap().get_mut(&index).unwrap().data
+        })
+    }
 }
 
 /// Renders the children of the item with the specified index into the renderer.
@@ -477,6 +505,10 @@ pub enum PlainOrStyledText {
 /// Trait for an item that represents an string towards the renderer
 #[allow(missing_docs)]
 pub trait RenderString: HasFont {
+    #[cfg(feature = "shared-parley")]
+    fn syntax_spans(self: Pin<&Self>, _text: &SharedString) -> crate::syntax_highlight::SyntaxLines {
+        Default::default()
+    }
     fn text(self: Pin<&Self>) -> PlainOrStyledText;
     fn max_lines(self: Pin<&Self>) -> i32 {
         0

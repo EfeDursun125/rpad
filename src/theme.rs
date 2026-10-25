@@ -2,7 +2,9 @@ use crate::{AppWindow, Theme};
 use slint::{Color, ComponentHandle};
 #[cfg(any(not(windows), test))]
 use std::collections::HashMap;
-use std::{fs, path::PathBuf, process::Command};
+#[cfg(not(windows))]
+use std::process::Command;
+use std::{fs, path::PathBuf};
 
 type Rgb = (u8, u8, u8);
 #[derive(Clone, Debug, PartialEq)]
@@ -209,27 +211,58 @@ fn portal(key: &str) -> Option<String> {
     }
 }
 #[cfg(windows)]
-pub fn read() -> Colors {
-    use std::os::windows::process::CommandExt;
+fn registry_dword(path: &str, name: &str) -> Option<u32> {
+    use std::ffi::c_void;
 
-    let output=Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command",
-        r"$p=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue; $d=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\DWM' -ErrorAction SilentlyContinue; Write-Output $p.AppsUseLightTheme; Write-Output $d.AccentColor"
-    ]).creation_flags(0x08000000).output().ok();
-    let values = output
-        .and_then(|v| String::from_utf8(v.stdout).ok())
-        .unwrap_or_default();
-    let mut lines = values.lines();
-    let dark = lines.next().and_then(|v| v.trim().parse::<u32>().ok()) != Some(1);
-    let accent = lines
-        .next()
-        .and_then(|v| v.trim().parse::<u32>().ok())
-        .map(|v| {
-            (
-                (v & 255) as u8,
-                ((v >> 8) & 255) as u8,
-                ((v >> 16) & 255) as u8,
-            )
-        });
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegGetValueW(
+            key: *mut c_void,
+            subkey: *const u16,
+            value: *const u16,
+            flags: u32,
+            value_type: *mut u32,
+            data: *mut c_void,
+            size: *mut u32,
+        ) -> u32;
+    }
+
+    let path: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let mut value = 0u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let current_user = 0x80000001u32 as i32 as isize as *mut c_void;
+
+    // RRF_RT_REG_DWORD rejects absent values and incompatible registry types.
+    let result = unsafe {
+        RegGetValueW(
+            current_user,
+            path.as_ptr(),
+            name.as_ptr(),
+            0x10,
+            std::ptr::null_mut(),
+            (&mut value as *mut u32).cast(),
+            &mut size,
+        )
+    };
+
+    (result == 0 && size == 4).then_some(value)
+}
+
+#[cfg(windows)]
+pub fn read() -> Colors {
+    let dark = registry_dword(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        "AppsUseLightTheme",
+    ) != Some(1);
+    let accent = registry_dword(r"Software\Microsoft\Windows\DWM", "AccentColor").map(|value| {
+        (
+            (value & 255) as u8,
+            ((value >> 8) & 255) as u8,
+            ((value >> 16) & 255) as u8,
+        )
+    });
+
     fallback(dark, accent)
 }
 
@@ -267,6 +300,54 @@ pub fn read() -> Colors {
     });
     fallback(dark, accent)
 }
+#[derive(Default)]
+pub struct Reader {
+    #[cfg(not(windows))]
+    kde: Option<(PathBuf, std::time::SystemTime, u64, Colors)>,
+}
+
+impl Reader {
+    pub fn read(&mut self) -> Colors {
+        #[cfg(not(windows))]
+        {
+            let config = if std::env::var_os("SUDO_UID").is_some() {
+                user_home().join(".config")
+            } else {
+                std::env::var_os("XDG_CONFIG_HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| user_home().join(".config"))
+            }
+            .join("kdeglobals");
+            let metadata = fs::metadata(&config).ok();
+            let stamp = metadata.as_ref().and_then(|metadata| {
+                metadata
+                    .modified()
+                    .ok()
+                    .map(|modified| (modified, metadata.len()))
+            });
+            if let Some((modified, length)) = stamp {
+                if let Some((path, previous_modified, previous_length, colors)) = &self.kde {
+                    if path == &config
+                        && *previous_modified == modified
+                        && *previous_length == length
+                    {
+                        return colors.clone();
+                    }
+                }
+                if let Some(colors) = fs::read_to_string(&config)
+                    .ok()
+                    .and_then(|input| kde_colors(&input))
+                {
+                    self.kde = Some((config, modified, length, colors.clone()));
+                    return colors;
+                }
+            }
+            self.kde = None;
+        }
+        read()
+    }
+}
+
 pub fn apply(ui: &AppWindow, c: &Colors) {
     let rgb = |v: Rgb| Color::from_rgb_u8(v.0, v.1, v.2);
     let theme = ui.global::<Theme>();

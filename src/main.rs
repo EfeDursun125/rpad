@@ -1,9 +1,14 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod controller;
 mod document;
+mod edit;
 mod font;
 mod history;
+mod indent;
+mod lines;
+mod search;
 mod settings;
+mod syntax;
 mod theme;
 
 use document::Document;
@@ -27,7 +32,7 @@ fn refresh(ui: &AppWindow, doc: &Document) {
             .unwrap_or_default()
             .into(),
     );
-    ui.set_dirty(doc.dirty(&ui.get_document_text()));
+    refresh_content(ui, doc);
     ui.set_format_label(
         format!(
             "UTF-8{} · {}",
@@ -36,58 +41,48 @@ fn refresh(ui: &AppWindow, doc: &Document) {
         )
         .into(),
     );
+}
+
+fn refresh_content(ui: &AppWindow, doc: &Document) {
+    ui.set_dirty(doc.dirty(&ui.get_document_text()));
     update_position(ui);
 }
+
 fn update_position(ui: &AppWindow) {
     let text = ui.get_document_text();
     let mut offset = (ui.get_cursor_offset().max(0) as usize).min(text.len());
     while !text.is_char_boundary(offset) {
         offset -= 1;
     }
-    let before = &text[..offset];
-    let line = before.bytes().filter(|b| *b == b'\n').count() + 1;
-    let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    let handle = ui.get_document_lines();
+    let cached = handle
+        .as_any()
+        .downcast_ref::<lines::LineModel>()
+        .and_then(|model| model.position(&text, offset));
+    let (line, column) = cached.unwrap_or_else(|| {
+        let before = &text[..offset];
+
+        (
+            before.bytes().filter(|byte| *byte == b'\n').count() + 1,
+            edit::column(before.rsplit('\n').next().unwrap_or("")),
+        )
+    });
     ui.set_position_label(format!("Ln {line}, Col {column}").into());
 }
 fn update_lines(ui: &AppWindow) {
-    let text = ui.get_document_text();
-    let lines: Vec<_> = text.split('\n').collect();
-    let count = lines.len();
+    update_lines_edit(ui, None);
+}
+
+fn update_lines_edit(ui: &AppWindow, edit: Option<edit::EditRange>) {
     let mut handle = ui.get_document_lines();
-    if handle
-        .as_any()
-        .downcast_ref::<slint::VecModel<LineRow>>()
-        .is_none()
-    {
-        handle = slint::ModelRc::new(slint::VecModel::<LineRow>::default());
+
+    if handle.as_any().downcast_ref::<lines::LineModel>().is_none() {
+        handle = slint::ModelRc::new(lines::LineModel::default());
         ui.set_document_lines(handle.clone());
     }
-    let model = handle
-        .as_any()
-        .downcast_ref::<slint::VecModel<LineRow>>()
-        .unwrap();
-    // Update existing rows in place so normal typing never restarts their fade.
-    for (index, content) in lines.into_iter().enumerate() {
-        let row = LineRow {
-            content: content.into(),
-            shown: true,
-        };
-        if let Some(previous) = model.row_data(index) {
-            if previous != row {
-                model.set_row_data(index, row);
-            }
-        } else {
-            model.push(row);
-        }
-    }
-    for index in count..model.row_count() {
-        if let Some(mut row) = model.row_data(index) {
-            if row.shown {
-                row.shown = false;
-                model.set_row_data(index, row);
-            }
-        }
-    }
+
+    let model = handle.as_any().downcast_ref::<lines::LineModel>().unwrap();
+    let count = model.sync(ui.get_document_text(), edit, ui.get_show_lines());
     if ui.get_active_lines() == count as i32 {
         return;
     }
@@ -105,15 +100,20 @@ fn update_lines(ui: &AppWindow) {
                 return;
             }
             let handle = ui.get_document_lines();
-            if let Some(model) = handle.as_any().downcast_ref::<slint::VecModel<LineRow>>() {
-                while model.row_count() > ui.get_active_lines() as usize {
-                    model.remove(model.row_count() - 1);
-                }
+            if let Some(model) = handle.as_any().downcast_ref::<lines::LineModel>() {
+                model.trim(ui.get_active_lines() as usize);
             }
         });
     }
 }
 fn install_document(ui: &AppWindow, state: &Rc<RefCell<Document>>, doc: Document) {
+    let filename = doc
+        .path
+        .as_ref()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Untitled".into());
+    syntax::configure_filename(ui, filename.into());
     ui.set_document_text(doc.text.clone().into());
     ui.invoke_select_range(0, 0);
     *state.borrow_mut() = doc;
@@ -123,7 +123,7 @@ fn install_document(ui: &AppWindow, state: &Rc<RefCell<Document>>, doc: Document
     ui.set_search_status("".into());
     ui.set_status("Ready".into());
 }
-fn find(ui: &AppWindow, backwards: bool) {
+fn find(ui: &AppWindow, backwards: bool, cache: &mut search::SearchCache) {
     let text = ui.get_document_text();
     let needle = ui.get_search_text();
     if needle.is_empty() {
@@ -134,25 +134,15 @@ fn find(ui: &AppWindow, backwards: bool) {
     let anchor = (ui.get_anchor_offset().max(0) as usize).min(text.len());
     let start = cursor.min(anchor);
     let end = cursor.max(anchor);
-    let found = if backwards {
-        text[..start]
-            .rfind(needle.as_str())
-            .or_else(|| text[start..].rfind(needle.as_str()).map(|n| start + n))
-    } else {
-        text[end..]
-            .find(needle.as_str())
-            .map(|n| end + n)
-            .or_else(|| text[..end].find(needle.as_str()))
-    };
+    let (found, count) = cache.find(text, needle.clone(), start, end, backwards);
     if let Some(index) = found {
         ui.invoke_select_range(index as i32, (index + needle.len()) as i32);
-        let count = text.matches(needle.as_str()).count();
         ui.set_search_status(format!("{count} matches").into());
     } else {
         ui.set_search_status("No matches".into());
     }
 }
-fn replace(ui: &AppWindow, all: bool) {
+fn replace(ui: &AppWindow, all: bool, cache: &mut search::SearchCache) {
     let needle = ui.get_search_text();
     if needle.is_empty() {
         return;
@@ -178,7 +168,7 @@ fn replace(ui: &AppWindow, all: bool) {
             ui.invoke_select_range(end as i32, end as i32);
             ui.invoke_edited();
         }
-        find(ui, false);
+        find(ui, false, cache);
     }
 }
 fn selection(ui: &AppWindow) -> history::Selection {
@@ -211,36 +201,74 @@ fn bind_line_metrics(ui: &AppWindow) {
 }
 
 fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
-    let history = Rc::new(RefCell::new(history::History::new(
-        ui.get_document_text().to_string(),
-    )));
+    let search = Rc::new(RefCell::new(search::SearchCache::default()));
+    let weak = ui.as_weak();
+    ui.on_lines_visibility_changed(move || {
+        if let Some(ui) = weak.upgrade() {
+            update_lines(&ui);
+        }
+    });
+
+    let weak = ui.as_weak();
+    ui.on_syntax_changed(move || {
+        if let Some(ui) = weak.upgrade() {
+            syntax::configure(&ui);
+        }
+    });
+    syntax::configure(ui);
+
+    let weak = ui.as_weak();
+    ui.on_indent_lines(move |reverse| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let selected = selection(&ui);
+        if !reverse && selected.anchor == selected.cursor {
+            ui.invoke_insert_at_caret("\t".into());
+            return;
+        }
+        let original = ui.get_document_text();
+        let (text, selected) = indent::indent(&original, selected, reverse);
+        if text == original.as_str() {
+            return;
+        }
+        ui.set_document_text(text.into());
+        ui.invoke_select_range(selected.anchor, selected.cursor);
+        ui.invoke_edited();
+    });
+
+    let history = Rc::new(RefCell::new(history::History::new(ui.get_document_text())));
     let weak = ui.as_weak();
     let doc = state.clone();
     let edits = history.clone();
     ui.on_edited(move || {
         if let Some(ui) = weak.upgrade() {
-            edits
+            let edit = edits
                 .borrow_mut()
-                .record(&ui.get_document_text(), selection(&ui));
-            refresh(&ui, &doc.borrow());
-            update_lines(&ui);
+                .record(ui.get_document_text(), selection(&ui));
+            update_lines_edit(&ui, edit);
+            refresh_content(&ui, &doc.borrow());
         }
     });
     let weak = ui.as_weak();
     let edits = history.clone();
     ui.on_cursor_moved(move || {
         if let Some(ui) = weak.upgrade() {
-            edits
+            if edits
                 .borrow_mut()
-                .selection(&ui.get_document_text(), selection(&ui));
-            update_position(&ui);
+                .selection(&ui.get_document_text(), selection(&ui))
+            {
+                update_position(&ui);
+            }
         }
     });
     let weak = ui.as_weak();
     let edits = history.clone();
+    let matches = search.clone();
     ui.on_history_reset(move || {
         if let Some(ui) = weak.upgrade() {
-            *edits.borrow_mut() = history::History::new(ui.get_document_text().to_string());
+            *edits.borrow_mut() = history::History::new(ui.get_document_text());
+            matches.borrow_mut().clear();
         }
     });
     let weak = ui.as_weak();
@@ -249,10 +277,10 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     ui.on_history_command(move |redo| {
         let result = edits.borrow_mut().step(redo);
         if let (Some(ui), Some((text, selection))) = (weak.upgrade(), result) {
-            ui.set_document_text(text.into());
-            ui.invoke_select_range(selection.anchor, selection.cursor);
-            refresh(&ui, &doc.borrow());
+            ui.set_document_text(text);
             update_lines(&ui);
+            ui.invoke_select_range(selection.anchor, selection.cursor);
+            refresh_content(&ui, &doc.borrow());
         }
     });
     let weak = ui.as_weak();
@@ -269,16 +297,17 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
             ui.invoke_edited();
         }
     });
+    let matches = search.clone();
     let weak = ui.as_weak();
     ui.on_find_next(move |backwards| {
         if let Some(ui) = weak.upgrade() {
-            find(&ui, backwards);
+            find(&ui, backwards, &mut matches.borrow_mut());
         }
     });
     let weak = ui.as_weak();
     ui.on_replace_text(move |all| {
         if let Some(ui) = weak.upgrade() {
-            replace(&ui, all);
+            replace(&ui, all, &mut search.borrow_mut());
         }
     });
 }
@@ -366,8 +395,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weak = ui.as_weak();
     std::thread::spawn(move || {
         let mut previous = None;
+        let mut reader = theme::Reader::default();
         loop {
-            let colors = theme::read();
+            let colors = reader.read();
             if previous.as_ref() != Some(&colors) {
                 previous = Some(colors.clone());
                 let weak = weak.clone();
@@ -532,6 +562,275 @@ mod editor_tests {
         });
         slint::run_event_loop().unwrap();
 
+        ui.hide().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires a display"]
+    fn real_paragraph_cache_matches_fresh_render_after_edits_and_style_changes() {
+        let ui = AppWindow::new().unwrap();
+        ui.set_smooth_caret(false);
+        ui.set_show_lines(false);
+        ui.set_document_name("sample.lua".into());
+        bind_line_metrics(&ui);
+        let state = Rc::new(RefCell::new(Document::default()));
+        bind_editor(&ui, &state);
+        ui.show().unwrap();
+        let test_ui = ui.clone_strong();
+        slint::Timer::single_shot(Duration::from_millis(100), move || {
+            let ui = test_ui;
+            let adapter = i_slint_core::window::WindowInner::from_pub(ui.window()).window_adapter();
+            let cache = adapter.renderer().text_layout_cache().unwrap();
+            for font in ["Noto Sans Mono", "DejaVu Sans Mono"] {
+                ui.set_editor_font(font.into());
+                for size in [13, 19] {
+                    ui.set_font_pixels(size);
+                    for wrap in [true, false] {
+                        ui.set_wrap_lines(wrap);
+                        for dark in [false, true] {
+                            ui.set_dark_theme(dark);
+                            for prefix in ["--[[", "-- comment", "local emoji = '🦀ğ'", ""] {
+                                let original = format!(
+                                    "{prefix}\n\tlocal value = 42\n--]]\n{}\nنص عربي\n",
+                                    "long wrapped text ".repeat(30)
+                                );
+                                ui.set_document_text(original.into());
+                                ui.invoke_select_range(3, 20);
+                                ui.window().take_snapshot().unwrap();
+                                let warm = ui.window().take_snapshot().unwrap();
+                                let (entries, bytes, order, _) = cache.paragraph_memo_usage();
+                                assert!(entries <= 4096 && bytes <= 32 * 1024 * 1024);
+                                assert!(order <= entries * 4 + 64);
+                                cache.clear_all();
+                                ui.window().request_redraw();
+                                let fresh = ui.window().take_snapshot().unwrap();
+                                assert_eq!(
+                                    warm.as_slice(),
+                                    fresh.as_slice(),
+                                    "{font} {size} wrap={wrap} dark={dark} prefix={prefix}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            // Exercise eviction beyond both the entry and estimated byte budgets.
+            let large = (0..5000)
+                .map(|index| format!("local cached_name_{index} = {index} -- cache budget test\n"))
+                .collect::<String>();
+            ui.set_document_text(large.clone().into());
+            ui.window().take_snapshot().unwrap();
+            ui.set_document_text(format!("-- changed prefix\n{large}").into());
+            ui.invoke_select_range(0, 0);
+            let warm = ui.window().take_snapshot().unwrap();
+            let (entries, bytes, order, _) = cache.paragraph_memo_usage();
+            assert!(entries <= 4096 && bytes <= 32 * 1024 * 1024);
+            assert!(order <= entries * 4 + 64);
+            cache.clear_all();
+            assert_eq!(cache.paragraph_memo_usage(), (0, 0, 0, 0));
+            ui.window().request_redraw();
+            let fresh = ui.window().take_snapshot().unwrap();
+            assert_eq!(warm.as_slice(), fresh.as_slice());
+            slint::quit_event_loop().unwrap();
+        });
+        slint::run_event_loop().unwrap();
+        ui.hide().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires a display; reports full edit-to-snapshot timing"]
+    fn editor_performance_sample() {
+        let ui = AppWindow::new().unwrap();
+        ui.set_smooth_caret(false);
+        ui.set_document_name("sample.lua".into());
+        ui.set_document_path("sample.lua".into());
+        ui.set_show_lines(false);
+        bind_line_metrics(&ui);
+        let state = Rc::new(RefCell::new(Document::default()));
+        bind_editor(&ui, &state);
+        let count = std::env::var("RPAD_PERF_LINES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1000);
+        let original = (0..count)
+            .map(|line| format!("local value_{line} = {line} -- cached paragraph\n"))
+            .collect::<String>();
+        ui.set_document_text(original.clone().into());
+        ui.invoke_history_reset();
+        update_lines(&ui);
+        ui.show().unwrap();
+        let test_ui = ui.clone_strong();
+        slint::Timer::single_shot(Duration::from_millis(100), move || {
+            let ui = test_ui;
+            ui.window().take_snapshot().unwrap();
+            let mut samples = Vec::new();
+            for round in 0..12 {
+                let changed = format!("local changed = {round}\n{original}");
+                let started = std::time::Instant::now();
+                ui.set_document_text(changed.into());
+                ui.invoke_select_range(5, 5);
+                ui.invoke_edited();
+                ui.window().take_snapshot().unwrap();
+                samples.push(started.elapsed().as_secs_f64() * 1000.);
+            }
+            samples.sort_by(f64::total_cmp);
+            ui.set_search_text("local".into());
+            let started = std::time::Instant::now();
+            for _ in 0..500 {
+                ui.invoke_find_next(false);
+            }
+            eprintln!(
+                "RPAD_PERF lines={count} edit_snapshot_median_ms={:.3} find_500_ms={:.3}",
+                samples[samples.len() / 2],
+                started.elapsed().as_secs_f64() * 1000.
+            );
+            slint::quit_event_loop().unwrap();
+        });
+        slint::run_event_loop().unwrap();
+        ui.hide().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires a display and SLINT_EMIT_DEBUG_INFO=1"]
+    fn real_tabs_syntax_colors_and_block_indent() {
+        let ui = AppWindow::new().unwrap();
+        let original = "a\tb\nab\tc\n\tlocal value = 42\n-- comment\n";
+        ui.set_document_name("test.lua".into());
+        ui.set_document_path("test.lua".into());
+        ui.set_document_text(original.into());
+        ui.set_smooth_caret(false);
+        bind_line_metrics(&ui);
+        let mut document = Document::default();
+        document.path = Some("test.lua".into());
+        let state = Rc::new(RefCell::new(document));
+        bind_editor(&ui, &state);
+        update_lines(&ui);
+        ui.show().unwrap();
+        let test_ui = ui.clone_strong();
+        slint::Timer::single_shot(Duration::from_millis(100), move || {
+            let ui = test_ui;
+            ui.invoke_select_range(1, 1);
+            let cell = ui.get_caret_x();
+            ui.invoke_select_range(2, 2);
+            let stop = ui.get_caret_x();
+            assert!(
+                (stop - cell * 4.).abs() < 0.2,
+                "tab={stop}, space cell={cell}"
+            );
+            ui.invoke_select_range(7, 7);
+            assert!((ui.get_caret_x() - stop).abs() < 0.2);
+            ui.invoke_select_range(10, 10);
+            assert!((ui.get_caret_x() - stop).abs() < 0.2);
+            ui.invoke_select_range(0, 0);
+            let snapshot = ui.window().take_snapshot().unwrap();
+            let mut cache = i_slint_core::syntax_highlight::SyntaxCache::default();
+            let spans = cache.update(&original.into(), "test.lua".into(), true);
+            let mut matched = std::collections::HashSet::new();
+            for color in spans
+                .iter()
+                .flat_map(|line| line.iter().map(|span| span.color))
+            {
+                if snapshot.as_slice().iter().any(|pixel| {
+                    pixel.r.abs_diff(color.red()) < 3
+                        && pixel.g.abs_diff(color.green()) < 3
+                        && pixel.b.abs_diff(color.blue()) < 3
+                }) {
+                    matched.insert((color.red(), color.green(), color.blue()));
+                }
+            }
+            assert!(
+                matched.len() >= 2,
+                "syntax colors not rendered: {matched:?}"
+            );
+            assert_eq!(ui.get_document_text().as_str(), original);
+            ui.invoke_select_range(0, 3);
+            ui.invoke_indent_lines(false);
+            assert!(ui.get_document_text().starts_with("\ta\tb"));
+            ui.invoke_history_command(false);
+            assert_eq!(ui.get_document_text().as_str(), original);
+            ui.invoke_history_command(true);
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                    text: slint::platform::Key::Backtab.into(),
+                });
+            assert_eq!(ui.get_document_text().as_str(), original);
+            // Tabs must paint exactly like blank spaces, not a missing-glyph box.
+            ui.set_document_text("\t\t\t\t".into());
+            ui.invoke_select_range(0, 0);
+            let tabs = ui.window().take_snapshot().unwrap();
+            ui.set_document_text("                ".into());
+            ui.invoke_select_range(0, 0);
+            let spaces = ui.window().take_snapshot().unwrap();
+            let origin = i_slint_backend_testing::ElementHandle::find_by_element_id(
+                &ui,
+                "AppWindow::editor",
+            )
+            .next()
+            .unwrap()
+            .absolute_position();
+            let scale = ui.window().scale_factor();
+            let left = (origin.x * scale) as usize + 3;
+            let top = (origin.y * scale) as usize;
+            let width = tabs.width() as usize;
+            for y in top..top + (ui.get_font_pixels() as f32 * 1.5 * scale) as usize {
+                for x in left..left + (cell * 16. * scale) as usize - 4 {
+                    assert_eq!(
+                        tabs.as_slice()[y * width + x],
+                        spaces.as_slice()[y * width + x],
+                        "tab paints ink at {x},{y}"
+                    );
+                }
+            }
+            ui.set_document_text("\t\t\t\t".into());
+            ui.invoke_select_range(2, 4);
+            let selected_tabs = ui.window().take_snapshot().unwrap();
+            assert_eq!(ui.get_document_text().as_str(), "\t\t\t\t");
+            ui.set_document_text("                ".into());
+            ui.invoke_select_range(8, 16);
+            let selected_spaces = ui.window().take_snapshot().unwrap();
+            for tab in 0..4 {
+                let mut different = 0;
+                let start = (origin.x * scale + cell * 4. * tab as f32 * scale) as usize + 1;
+                let end = (origin.x * scale + cell * 4. * (tab + 1) as f32 * scale) as usize - 1;
+                for y in top..top + (ui.get_font_pixels() as f32 * 1.5 * scale) as usize {
+                    for x in start..end {
+                        different += usize::from(
+                            selected_tabs.as_slice()[y * width + x]
+                                != selected_spaces.as_slice()[y * width + x],
+                        );
+                    }
+                }
+                if tab < 2 {
+                    assert_eq!(different, 0, "unselected tab {tab} is marked");
+                } else {
+                    assert!(
+                        different > 8,
+                        "selected tab {tab} has no arrow: {different}"
+                    );
+                }
+            }
+            ui.set_document_text("\t\t\t\t".into());
+            ui.invoke_select_range(4, 2);
+            let backwards = ui.window().take_snapshot().unwrap();
+            for y in top..top + (ui.get_font_pixels() as f32 * 1.5 * scale) as usize {
+                for x in left..left + (cell * 16. * scale) as usize - 4 {
+                    assert_eq!(
+                        backwards.as_slice()[y * width + x],
+                        selected_tabs.as_slice()[y * width + x]
+                    );
+                }
+            }
+            if let Some(path) = std::env::var_os("RPAD_TAB_MARKER_CAPTURE") {
+                let mut image =
+                    format!("P6\n{} {}\n255\n", backwards.width(), backwards.height()).into_bytes();
+                for pixel in backwards.as_slice() {
+                    image.extend_from_slice(&[pixel.r, pixel.g, pixel.b]);
+                }
+                std::fs::write(path, image).unwrap();
+            }
+            slint::quit_event_loop().unwrap();
+        });
+        slint::run_event_loop().unwrap();
         ui.hide().unwrap();
     }
 
@@ -734,6 +1033,26 @@ mod editor_tests {
     }
 
     #[test]
+    fn caret_advances_on_frames_shorter_than_eight_milliseconds() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = AppWindow::new().unwrap();
+        ui.show().unwrap();
+        ui.invoke_focus_editor();
+        advance(1);
+        ui.invoke_move_caret(100., 50.);
+        let before = ui.get_smooth_x();
+
+        advance(5);
+
+        assert!(ui.get_smooth_x() > before);
+        assert!(ui.get_smooth_x() < 100.);
+        ui.set_smooth_caret(false);
+        advance(1);
+        assert_eq!(ui.get_smooth_x(), 100.);
+        ui.hide().unwrap();
+    }
+
+    #[test]
     fn typing_replacement_undo_document_switch_and_caret_animation() {
         i_slint_backend_testing::init_no_event_loop();
         let ui = AppWindow::new().unwrap();
@@ -755,7 +1074,7 @@ mod editor_tests {
         assert!(ui.get_dirty());
         ui.set_search_text("alpha".into());
         ui.set_replacement_text("Türkçe".into());
-        replace(&ui, true);
+        replace(&ui, true, &mut search::SearchCache::default());
         advance(1);
         assert_eq!(ui.get_document_text(), "Türkçe beta Türkçe");
         ui.invoke_edit_command("undo".into());
@@ -834,7 +1153,7 @@ mod editor_tests {
         ui.invoke_insert_at_caret("\tfirst\r\n".into());
         ui.set_search_text("first".into());
         ui.set_replacement_text("second".into());
-        replace(&ui, true);
+        replace(&ui, true, &mut search::SearchCache::default());
         advance(1);
         assert!(ui.get_document_text().contains("\tsecond\r\n"));
         ui.invoke_edit_command("undo".into());

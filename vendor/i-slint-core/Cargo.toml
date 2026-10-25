@@ -81,6 +81,8 @@ raw-window-handle-06 = ["dep:raw-window-handle-06"]
 rtti = []
 shared-fontique = ["i-slint-common/shared-fontique"]
 shared-parley = [
+    "dep:syntect",
+    "dep:unicode-width",
     "shared-fontique",
     "dep:parley",
     "dep:skrifa",
@@ -500,3 +502,13 @@ check-cfg = [
     "cfg(slint_int_coord)",
     "cfg(slint_nightly_test)",
 ]
+
+[dependencies.syntect]
+version = "5.3.0"
+default-features = false
+features = ["default-syntaxes", "default-themes", "regex-fancy", "yaml-load"]
+optional = true
+
+[dependencies.unicode-width]
+version = "0.2.2"
+optional = true

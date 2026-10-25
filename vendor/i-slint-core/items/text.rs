@@ -761,6 +761,12 @@ struct UndoItem {
 #[derive(FieldOffsets, Default, SlintElement)]
 #[pin]
 pub struct TextInput {
+    #[cfg(feature = "shared-parley")]
+    pub syntax_filename: Property<SharedString>,
+    #[cfg(feature = "shared-parley")]
+    pub syntax_dark: Property<bool>,
+    #[cfg(feature = "shared-parley")]
+    syntax_cache: std::cell::RefCell<crate::syntax_highlight::SyntaxCache>,
     pub text: Property<SharedString>,
     pub font_family: Property<SharedString>,
     pub font_size: Property<LogicalLength>,
@@ -1343,6 +1349,11 @@ impl HasFont for TextInput {
 }
 
 impl RenderString for TextInput {
+    #[cfg(feature = "shared-parley")]
+    fn syntax_spans(self: Pin<&Self>, text: &SharedString) -> crate::syntax_highlight::SyntaxLines {
+        if self.is_password() || !self.preedit_text().is_empty() { return Default::default(); }
+        self.syntax_cache.borrow_mut().update(text, self.syntax_filename(), self.syntax_dark())
+    }
     fn text(self: Pin<&Self>) -> PlainOrStyledText {
         // Deliberately not `visual_representation`, which would size the item off the cursor and
         // the selection too -- see `text_with_preedit`.
@@ -2002,6 +2013,12 @@ impl TextInput {
     pub fn cut(self: Pin<&Self>, window_adapter: &Rc<dyn WindowAdapter>, self_rc: &ItemRc) {
         self.copy(window_adapter, self_rc);
         self.delete_selection(window_adapter, self_rc, TextChangeNotify::TriggerCallbacks);
+    }
+
+    #[cfg(feature = "shared-parley")]
+    pub fn set_syntax(self: Pin<&Self>, filename: SharedString, dark: bool) {
+        Self::FIELD_OFFSETS.syntax_filename().apply_pin(self).set(filename);
+        Self::FIELD_OFFSETS.syntax_dark().apply_pin(self).set(dark);
     }
 
     pub fn set_selection_offsets(

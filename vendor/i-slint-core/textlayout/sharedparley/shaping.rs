@@ -10,6 +10,8 @@
 //! dependencies, so neither may shape through anything narrower.
 
 use super::*;
+use crate::SharedString;
+use unicode_width::UnicodeWidthChar;
 
 /// Font size of inline `code` runs, as a fraction of the surrounding body
 /// text. Matches the convention used by GitHub-style markdown renderers — the
@@ -30,14 +32,17 @@ pub(super) struct Brush {
 }
 
 pub(super) struct LayoutWithoutLineBreaksBuilder {
-    font_request: Option<FontRequest>,
+    pub(super) font_request: Option<FontRequest>,
     pub(super) text_wrap: TextWrap,
-    stroke: Option<TextStrokeStyle>,
+    pub(super) stroke: Option<TextStrokeStyle>,
     pub(super) scale_factor: ScaleFactor,
     pub(super) pixel_size: LogicalLength,
     /// When false, overlong words are not broken up. Only used to measure the
     /// min-content width (the longest word), never to lay text out for display.
-    overflow_wrap_anywhere: bool,
+    pub(super) overflow_wrap_anywhere: bool,
+    line_ratio: RefCell<Option<Option<f32>>>,
+    tab_space: RefCell<Option<f32>>,
+    syntax_lines: crate::syntax_highlight::SyntaxLines,
 }
 
 impl LayoutWithoutLineBreaksBuilder {
@@ -59,6 +64,9 @@ impl LayoutWithoutLineBreaksBuilder {
             scale_factor,
             pixel_size,
             overflow_wrap_anywhere: true,
+            syntax_lines: Default::default(),
+            line_ratio: RefCell::new(None),
+            tab_space: RefCell::new(None),
         }
     }
 
@@ -71,8 +79,8 @@ impl LayoutWithoutLineBreaksBuilder {
         // Use the requested font's natural line-height ratio for every run so fallback fonts,
         // such as the symbol font used for password characters, don't enlarge the line box.
         // `FontSizeRelative` scales the result with each styled span's font size.
-        let line_height_ratio =
-            self.font_request.as_ref().and_then(|fr| line_height_ratio(font_ctx, fr));
+        let line_height_ratio = *self.line_ratio.borrow_mut().get_or_insert_with(||
+            self.font_request.as_ref().and_then(|font| line_height_ratio(font_ctx, font)));
 
         let mut builder = layout_ctx.ranged_builder(font_ctx, text, self.scale_factor.get(), false);
 
@@ -165,11 +173,32 @@ impl LayoutWithoutLineBreaksBuilder {
         text: &str,
         formatting: impl IntoIterator<Item = i_slint_common::styled_text::FormattedSpan>,
         link_color: Option<Color>,
+        colors: &[crate::syntax_highlight::ColorSpan],
     ) -> parley::Layout<Brush> {
         use i_slint_common::styled_text::Style;
 
         LAYOUT_CONTEXT.with_borrow_mut(|layout_ctx| {
-            let mut builder = self.ranged_builder(layout_ctx, font_context, text);
+            // Tabs remain one source byte. Shape a wide space at the next four-column stop.
+            let has_tabs = text.contains('\t');
+            let display = if has_tabs { alloc::borrow::Cow::Owned(text.replace('\t', " ")) }
+                else { alloc::borrow::Cow::Borrowed(text) };
+            let space = if has_tabs { *self.tab_space.borrow_mut().get_or_insert_with(||
+                self.font_request.as_ref().and_then(|font| super::char_size_for_font(font_context, font, ' '))
+                .map(|size| size.width).unwrap_or(self.pixel_size.get() * 0.6)) } else { 0. };
+            let mut builder = self.ranged_builder(layout_ctx, font_context, &display);
+            let mut column = 0;
+            for (offset, ch) in text.char_indices().filter(|_| has_tabs) {
+                if ch == '\t' {
+                    let cells = crate::textlayout::DEFAULT_TAB_WIDTH - column % crate::textlayout::DEFAULT_TAB_WIDTH;
+                    builder.push(parley::StyleProperty::LetterSpacing(space * (cells - 1) as f32), offset..offset + 1);
+                    column += cells;
+                } else { column += ch.width().unwrap_or(0); }
+            }
+            for span in colors {
+                builder.push(parley::StyleProperty::Brush(Brush {
+                    override_fill_color: Some(span.color), stroke: self.stroke, link_color: None,
+                }), span.range.clone());
+            }
 
             // filter empty ranges otherwise parley will panic on assert
             for span in formatting.into_iter().filter(|s| !s.range.is_empty()) {
@@ -235,7 +264,7 @@ impl LayoutWithoutLineBreaksBuilder {
                 }
             }
 
-            builder.build(text)
+            builder.build(&display)
         })
     }
 }
@@ -276,35 +305,126 @@ pub(super) fn create_text_paragraphs(
     text: PlainOrStyledText,
     link_color: Color,
 ) -> Vec<TextParagraph> {
+    create_text_paragraphs_memo(layout_builder, font_context, text, link_color, None, None)
+}
+
+fn create_text_paragraphs_memo(
+    layout_builder: &LayoutWithoutLineBreaksBuilder,
+    font_context: &mut parley::FontContext,
+    text: PlainOrStyledText,
+    link_color: Color,
+    memo: Option<&RefCell<super::memo::ParagraphMemo>>,
+    previous: Option<Vec<TextParagraph>>,
+) -> Vec<TextParagraph> {
+    let plain = matches!(text, PlainOrStyledText::Plain(_));
+    let style = Rc::new(super::memo::Style::new(layout_builder));
     let paragraph_from_text =
         |font_context: &mut parley::FontContext,
          text: &str,
          range: std::ops::Range<usize>,
          formatting: Vec<i_slint_common::styled_text::FormattedSpan>,
-         links: Vec<(std::ops::Range<usize>, std::string::String)>| {
+         links: Vec<(std::ops::Range<usize>, std::string::String)>,
+         colors: &[crate::syntax_highlight::ColorSpan]| {
             let code_ranges: alloc::vec::Vec<Range<usize>> = formatting
                 .iter()
                 .filter(|s| matches!(s.style, i_slint_common::styled_text::Style::Code))
                 .map(|s| s.range.clone())
                 .collect();
 
-            let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
+            let key = memo
+                .filter(|_| plain)
+                .map(|memo| memo.borrow_mut().key(layout_builder, text, colors));
+            let cached = key.and_then(|key| memo.unwrap().borrow_mut().get(key, text, colors));
+            let layout = cached.unwrap_or_else(|| {
+                let layout =
+                    layout_builder.build(font_context, text, formatting, Some(link_color), colors);
+                if let Some(key) = key {
+                    memo.unwrap()
+                        .borrow_mut()
+                        .insert(key, text, colors, &layout);
+                }
+                layout
+            });
 
-            TextParagraph { range, y: PhysicalLength::default(), layout, links, code_ranges }
+            TextParagraph {
+                range,
+                y: PhysicalLength::default(),
+                layout,
+                links,
+                code_ranges,
+                retained: None,
+                breaking: None,
+                tab_markers: Vec::new(),
+            }
         };
 
     let mut paragraphs = Vec::with_capacity(1);
 
     match text {
         PlainOrStyledText::Plain(ref text) => {
-            for range in paragraph_ranges(text) {
-                paragraphs.push(paragraph_from_text(
-                    font_context,
-                    &text[range.clone()],
-                    range,
-                    Default::default(),
-                    Default::default(),
-                ));
+            let ranges: Vec<_> = paragraph_ranges(text).collect();
+            paragraphs.reserve(ranges.len());
+            let old = previous.unwrap_or_default();
+            let matches = |paragraph: &TextParagraph, index: usize| {
+                let colors = layout_builder
+                    .syntax_lines
+                    .get(index)
+                    .map_or(&[][..], |line| line.as_slice());
+                paragraph.retained.as_ref().is_some_and(|retained| {
+                    *retained.style == *style
+                        && retained.text.as_str() == &text[ranges[index].clone()]
+                        && retained.colors.as_slice() == colors
+                })
+            };
+            let mut prefix = 0;
+            while prefix < old.len().min(ranges.len()) && matches(&old[prefix], prefix) {
+                prefix += 1;
+            }
+            let mut suffix = 0;
+            while suffix < old.len().min(ranges.len()) - prefix
+                && matches(&old[old.len() - 1 - suffix], ranges.len() - 1 - suffix)
+            {
+                suffix += 1;
+            }
+            let tail_start = ranges.len() - suffix;
+            let mut old = old;
+            let tail = old.split_off(old.len() - suffix);
+            old.truncate(prefix);
+            let mut head = old.into_iter();
+            let mut tail = tail.into_iter();
+            for (index, range) in ranges.into_iter().enumerate() {
+                let mut paragraph = if index < prefix {
+                    head.next().unwrap()
+                } else if index >= tail_start {
+                    tail.next().unwrap()
+                } else {
+                    let colors = layout_builder
+                        .syntax_lines
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut paragraph = paragraph_from_text(
+                        font_context,
+                        &text[range.clone()],
+                        range.clone(),
+                        Default::default(),
+                        Default::default(),
+                        colors.as_slice(),
+                    );
+                    paragraph.tab_markers = text[range.clone()].bytes().enumerate()
+                        .filter(|(_, byte)| *byte == b'\t')
+                        .map(|(offset, _)| TabMarker { offset, line: 0, rect: PhysicalRect::zero() })
+                        .collect();
+                    paragraph.retained = Some(RetainedParagraph {
+                        text: text[range.clone()].into(),
+                        colors,
+                        style: style.clone(),
+                    });
+                    paragraph
+                };
+                paragraph.range = range;
+                paragraph.y = PhysicalLength::zero();
+                paragraphs.push(paragraph);
             }
         }
         PlainOrStyledText::Styled(rich_text) => {
@@ -315,6 +435,7 @@ pub(super) fn create_text_paragraphs(
                     0..0,
                     paragraph.formatting,
                     paragraph.links,
+                    &[],
                 ));
             }
         }
@@ -384,12 +505,33 @@ pub(super) fn shape_paragraphs(
     text_wrap: TextWrap,
     scale_factor: ScaleFactor,
     font_context: &mut parley::FontContext,
+    memo: Option<&RefCell<super::memo::ParagraphMemo>>,
+    previous: Option<Vec<TextParagraph>>,
 ) -> Vec<TextParagraph> {
-    let builder = shaping_builder(text, item_rc, text_wrap, scale_factor);
-    create_text_paragraphs(&builder, font_context, text.text(), text.link_color())
+    let mut builder = shaping_builder(text, item_rc, text_wrap, scale_factor);
+    let content = text.text();
+    if let PlainOrStyledText::Plain(ref plain) = content {
+        builder.syntax_lines = text.syntax_spans(plain);
+    }
+    create_text_paragraphs_memo(&builder, font_context, content, text.link_color(), memo, previous)
+}
+
+struct RetainedParagraph {
+    text: SharedString,
+    colors: Rc<Vec<crate::syntax_highlight::ColorSpan>>,
+    style: Rc<super::memo::Style>,
+}
+
+pub(super) struct TabMarker {
+    pub(super) offset: usize,
+    pub(super) line: usize,
+    pub(super) rect: PhysicalRect,
 }
 
 pub(super) struct TextParagraph {
+    pub(super) tab_markers: Vec<TabMarker>,
+    retained: Option<RetainedParagraph>,
+    pub(super) breaking: Option<(Option<PhysicalLength>, parley::Alignment)>,
     pub(super) range: Range<usize>,
     pub(super) y: PhysicalLength,
     pub(super) layout: parley::Layout<Brush>,

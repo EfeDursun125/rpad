@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-3.0-only
+%YAML 1.2
+---
+name: CMake
+file_extensions: [cmake]
+scope: source.cmake
+contexts:
+  main:
+    - match: '#\[(=*)\['
+      scope: punctuation.definition.comment.begin
+      push: bracket-comment
+    - match: '#.*$'
+      scope: comment.line.number-sign
+    - match: '\[(=*)\['
+      scope: punctuation.definition.string.begin
+      push: bracket-string
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push: double
+    - include: variables
+    - match: '(?i:\b(?:if|elseif|else|endif|foreach|endforeach|while|endwhile|function|endfunction|macro|endmacro|return|break|continue|block|endblock)\b)(?=\s*\()'
+      scope: keyword.control
+    - match: '\b[A-Za-z_]\w*(?=\s*\()'
+      scope: entity.name.function
+    - match: '(?i:\b(?:ON|OFF|TRUE|FALSE|YES|NO|AND|OR|NOT|DEFINED|COMMAND|TARGET|EXISTS|VERSION|PUBLIC|PRIVATE|INTERFACE|REQUIRED|QUIET|STATUS|FATAL_ERROR)\b)'
+      scope: constant.language
+    - match: '\b\d+(?:\.\d+)*\b'
+      scope: constant.numeric
+  variables:
+    - match: '\$(?:ENV|CACHE)?\{[^}]*\}'
+      scope: variable.parameter
+    - match: '\$<'
+      scope: punctuation.section.interpolation.begin
+      push: generator
+  generator:
+    - meta_scope: variable.parameter
+    - include: variables
+    - match: '>'
+      scope: punctuation.section.interpolation.end
+      pop: true
+  double:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - include: variables
+    - match: '"'
+      scope: punctuation.definition.string.end
+      pop: true
+  bracket-comment:
+    - meta_scope: comment.block
+    - match: '\]\1\]'
+      scope: punctuation.definition.comment.end
+      pop: true
+  bracket-string:
+    - meta_scope: string.quoted.other
+    - match: '\]\1\]'
+      scope: punctuation.definition.string.end
+      pop: true

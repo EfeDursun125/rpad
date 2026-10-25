@@ -147,7 +147,7 @@ pub(super) fn layout(
 
     // Returned None if failed to get the ellipsis glyph for some rare reason.
     let get_ellipsis_glyph = |font_context: &mut parley::FontContext| {
-        let mut layout = layout_builder.build(font_context, "…", None, None);
+        let mut layout = layout_builder.build(font_context, "…", None, None, &[]);
         layout.break_all_lines(None);
         let line = layout.lines().next()?;
         let item = line.items().next()?;
@@ -171,8 +171,29 @@ pub(super) fn layout(
 
     let mut para_y = 0.0;
     for para in paragraphs.iter_mut() {
-        para.layout.break_all_lines(max_physical_width.map(|width| width.get()));
-        para.layout.align(inputs.alignment, parley::AlignmentOptions::default());
+        let breaking = (max_physical_width, inputs.alignment);
+        if para.breaking != Some(breaking) {
+            para.layout.break_all_lines(max_physical_width.map(|width| width.get()));
+            para.layout.align(inputs.alignment, parley::AlignmentOptions::default());
+            para.breaking = Some(breaking);
+            // Tab geometry shares the paragraph's break/align cache. Selection and animation
+            // frames never rescan the source or resolve font glyphs for whitespace markers.
+            for marker in &mut para.tab_markers {
+                if let Some(cluster) = parley::layout::Cluster::from_byte_index(&para.layout, marker.offset) {
+                    let cursor = parley::editing::Cursor::from_byte_index(
+                        &para.layout, marker.offset, parley::layout::Affinity::Downstream);
+                    let caret = cursor.geometry(&para.layout, 0.);
+                    let advance = cluster.advance();
+                    let left = caret.x0 as f32 - if cluster.is_rtl() { advance } else { 0. };
+                    marker.rect = PhysicalRect::new(
+                        PhysicalPoint::new(left, caret.y0 as f32),
+                        PhysicalSize::new(advance, caret.height() as f32));
+                    marker.line = cluster.path().line_index();
+                }
+            }
+            para.tab_markers.sort_by(|a, b| a.line.cmp(&b.line)
+                .then_with(|| a.rect.min_x().total_cmp(&b.rect.min_x())));
+        }
 
         para.y = PhysicalLength::new(para_y);
         para_y += para.layout.height();

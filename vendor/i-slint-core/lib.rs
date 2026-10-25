@@ -60,6 +60,8 @@ pub mod sharedvector;
 pub mod slice;
 pub mod string;
 pub mod styled_text;
+#[cfg(feature = "shared-parley")]
+pub mod syntax_highlight;
 pub mod textlayout;
 pub mod timers;
 pub mod translations;

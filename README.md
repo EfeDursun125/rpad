@@ -50,6 +50,13 @@ The View menu controls word wrap, line numbers and smooth animations. Word wrap 
 - Windows: `%APPDATA%/rpad/settings.conf`.
 - Linux sudo sessions: `/root/.config/rpad/settings.conf`, separate from normal-user preferences.
 
+## Syntax highlighting
+
+Known file extensions select syntax colors automatically, including Lua, C/C++, headers,
+Pawn (`.sma`, `.pwn`), SourcePawn (`.sp`), GDScript (`.gd`), Java (`.java`), C# (`.cs`,
+`.csx`), CMake (`CMakeLists.txt`, `.cmake`), Rust, Python, JavaScript, HTML/CSS, JSON, YAML, TOML, shell scripts and Markdown.
+Colors follow the light/dark theme and preserve selection colors and text animations.
+
 ## Animations
 
 The text caret is a vertical line, separate from the mouse pointer. It follows Slint's actual text layout using the same time-based exponential interpolation on both axes. A motion timer runs every 8 ms and stops when the caret reaches its target. Idle blinking fades over 360 ms. The caret is hidden while text is selected or the editor is unfocused.
@@ -87,7 +94,7 @@ The Windows x86-64 ZIP contains `RPad.exe`, licenses, corresponding source archi
 The Linux x86-64 AppImage is built on Ubuntu 24.04 and requires glibc 2.39 or newer. Graphics drivers and the desktop portal come from the host system. Normal execution requires FUSE. To extract and run instead:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./RPad-0.1.1-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./RPad-0.1.2-x86_64.AppImage
 ```
 
 Package generation is defined in [.github/workflows/packages.yml](.github/workflows/packages.yml). Pushing a version tag or running the workflow manually produces Windows ZIP and AppImage artifacts. Wine checks on Linux are separate from native Windows testing and do not establish compatibility on real Windows hardware.

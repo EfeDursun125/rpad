@@ -40,7 +40,10 @@ impl Document {
                 }
                 let crlf = text.contains("\r\n");
                 // Mixed line endings stay verbatim to avoid silently rewriting a file.
-                let crlf = crlf && !text.replace("\r\n", "").contains('\n');
+                let crlf = crlf
+                    && text
+                        .match_indices('\n')
+                        .all(|(offset, _)| offset > 0 && text.as_bytes()[offset - 1] == b'\r');
                 let text = if crlf {
                     text.replace("\r\n", "\n")
                 } else {
@@ -87,16 +90,26 @@ impl Document {
                 return Err(io::Error::other("The file changed on disk. Use Save as to save a separate copy, or reopen the file."));
             }
         }
-        let mut bytes = Vec::new();
+        let extra_newlines = if self.crlf {
+            text.bytes().filter(|byte| *byte == b'\n').count()
+        } else {
+            0
+        };
+        let mut bytes =
+            Vec::with_capacity(text.len() + extra_newlines + if self.bom { 3 } else { 0 });
         if self.bom {
             bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]);
         }
-        let encoded = if self.crlf {
-            text.replace('\n', "\r\n")
+        if self.crlf {
+            for (index, part) in text.split('\n').enumerate() {
+                if index > 0 {
+                    bytes.extend_from_slice(b"\r\n");
+                }
+                bytes.extend_from_slice(part.as_bytes());
+            }
         } else {
-            text.to_owned()
-        };
-        bytes.extend_from_slice(encoded.as_bytes());
+            bytes.extend_from_slice(text.as_bytes());
+        }
         atomic_write(&destination, &bytes)?;
         self.path = Some(destination);
         self.text = text.to_owned();

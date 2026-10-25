@@ -45,6 +45,7 @@ const ENTRY_LIMIT: usize = 1024;
 /// Cache for shaped text paragraphs (before line breaking), keyed by ItemRc.
 pub struct TextLayoutCache {
     inner: InnerTextLayoutCache,
+    pub(super) paragraph_memo: RefCell<super::memo::ParagraphMemo>,
     /// Caches the result of [`super::text_content_widths`]. The widths are two scalars derived from
     /// paragraphs that no other path can reuse, because they are shaped without
     /// `OverflowWrap::Anywhere`, so the result is kept instead of the paragraphs.
@@ -68,6 +69,7 @@ impl Default for TextLayoutCache {
     fn default() -> Self {
         Self {
             inner: Default::default(),
+            paragraph_memo: Default::default(),
             content_widths: Default::default(),
             generation: Default::default(),
             entry_count_estimate: Default::default(),
@@ -98,6 +100,7 @@ impl TextLayoutCache {
     pub fn clear_all(&self) {
         self.inner.clear_all();
         self.content_widths.clear_all();
+        self.paragraph_memo.borrow_mut().clear();
     }
 
     /// Returns the cached content widths of `item_rc`, computing them on a miss.
@@ -138,6 +141,10 @@ impl TextLayoutCache {
 
 #[cfg(feature = "testing")]
 impl TextLayoutCache {
+    pub fn paragraph_memo_usage(&self) -> (usize, usize, usize, u64) {
+        self.paragraph_memo.borrow().usage()
+    }
+
     pub fn cache_miss_count(&self) -> u64 {
         self.cache_miss_count.get()
     }
@@ -221,11 +228,11 @@ pub(super) fn cached_paragraphs<'a>(
     wrap: TextWrap,
     window: &crate::api::Window,
     font_context: &mut parley::FontContext,
-    shape: &dyn Fn(&mut parley::FontContext) -> Vec<TextParagraph>,
+    shape: &dyn Fn(&mut parley::FontContext, Option<Vec<TextParagraph>>) -> Vec<TextParagraph>,
 ) -> CachedParagraphsGuard<'a> {
     let Some((cache, item_rc)) = cache.zip(item_rc) else {
         return CachedParagraphsGuard {
-            paragraphs: Some(shape(font_context)),
+            paragraphs: Some(shape(font_context, None)),
             line_breaking: None,
             container: None,
         };
@@ -253,13 +260,13 @@ pub(super) fn cached_paragraphs<'a>(
         cache.sweep();
     }
 
-    let mut entry = cache.inner.get_or_update_cache_entry_ref(item_rc, || {
+    let mut entry = cache.inner.get_or_update_cache_entry_ref_with_previous(item_rc, |previous| {
         #[cfg(feature = "testing")]
         cache.cache_miss_count.set(cache.cache_miss_count.get() + 1);
         cache.entry_count_estimate.set(cache.entry_count_estimate.get() + 1);
         CachedParagraphs {
             wrap,
-            paragraphs: Some(shape(font_context)),
+            paragraphs: Some(shape(font_context, previous.and_then(|entry| entry.paragraphs))),
             line_breaking: None,
             last_used: 0, // stamped right below, for both a hit and this miss
         }
