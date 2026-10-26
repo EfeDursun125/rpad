@@ -2,6 +2,9 @@
 
 ## 0.1.2
 
+- Highlight Lua function calls and logical operators.
+- Preserve the last normal window dimensions when closing a maximized or fullscreen window.
+- Set the Wayland application identity so window decorations use the RPad icon.
 - Add syntax highlighting for Pawn, SourcePawn, GDScript, Java, C# and CMake alongside other common formats.
 - Use four-column tab stops and show faint arrows for selected tabs.
 - Reuse shaped paragraphs, line breaking, syntax states and search matches across edits.

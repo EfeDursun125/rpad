@@ -81,7 +81,9 @@ jobs:
             'Linux: download the AppImage and mark it executable.' \
             'Windows: download the EXE, or use the ZIP for the installer, notices and source.' \
             '' \
-            'Fixes line-number alignment across fonts and wrapped lines. Built with optimization level 3, fat LTO and one codegen unit.' \
+            'Adds Pawn, SourcePawn, GDScript, Java, C# and CMake highlighting, improves Lua colors and selected tab markers, and caches editor rendering and search work.' \
+            'Preserves normal window dimensions when closing fullscreen or maximized, and fixes the Wayland application icon identity.' \
+            'Built with optimization level 3, fat LTO and one codegen unit.' \
             > release-notes.md
           gh release create "$tag" --target "$RELEASE_COMMIT" --title "RPad ${tag#v}" \
             --notes-file release-notes.md --draft \
