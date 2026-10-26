@@ -38,6 +38,17 @@ impl Settings {
         }
     }
 
+    pub fn capture_preserving_window(ui: &AppWindow, previous: &Self) -> Self {
+        let mut current = Self::capture(ui);
+
+        if ui.window().is_fullscreen() || ui.window().is_maximized() {
+            current.window_width = previous.window_width;
+            current.window_height = previous.window_height;
+        }
+
+        current
+    }
+
     pub fn apply(&self, ui: &AppWindow) {
         ui.window().set_size(slint::LogicalSize::new(
             self.window_width as f32,
@@ -144,6 +155,29 @@ pub fn path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fullscreen_and_maximized_keep_previous_window_dimensions() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = AppWindow::new().unwrap();
+        ui.window().set_size(slint::LogicalSize::new(1100., 780.));
+        let normal = Settings::capture(&ui);
+
+        for fullscreen in [false, true] {
+            ui.window().set_fullscreen(fullscreen);
+            ui.window().set_maximized(!fullscreen);
+            ui.window().set_size(slint::LogicalSize::new(1920., 1080.));
+            ui.set_font_pixels(24);
+            let captured = Settings::capture_preserving_window(&ui, &normal);
+            assert_eq!((captured.window_width, captured.window_height), (1100, 780));
+            assert_eq!(captured.font_size, 24);
+        }
+        ui.window().set_fullscreen(false);
+        ui.window().set_maximized(false);
+        ui.window().set_size(slint::LogicalSize::new(1200., 850.));
+        let restored = Settings::capture_preserving_window(&ui, &normal);
+        assert_eq!((restored.window_width, restored.window_height), (1200, 850));
+    }
 
     #[test]
     fn window_dimensions_restore_and_survive_hiding() {

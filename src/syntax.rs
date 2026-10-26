@@ -28,6 +28,47 @@ pub fn configure_filename(ui: &AppWindow, filename: slint::SharedString) {
 mod tests {
     use i_slint_core::syntax_highlight::SyntaxCache;
     #[test]
+    fn lua_calls_and_logical_operators_are_colored() {
+        let text = "if IsPlayerBot(id) and not IsPlayerInHeroSelectionControl(id) or Check() then\n-- Hidden() and not or\nlocal s = \"Hidden() and not or\"";
+        for dark in [false, true] {
+            let mut cache = SyntaxCache::default();
+            let spans = cache.update(&text.into(), "test.lua".into(), dark);
+            for token in [
+                "IsPlayerBot",
+                "and",
+                "not",
+                "IsPlayerInHeroSelectionControl",
+                "or",
+                "Check",
+            ] {
+                let offset = text.find(token).unwrap();
+                assert!(
+                    spans[0].iter().any(|span| span.range.contains(&offset)),
+                    "{token} dark={dark}"
+                );
+            }
+            for line in [1, 2] {
+                let source = text.lines().nth(line).unwrap();
+                let offset = source.find("Hidden").unwrap();
+                let color = spans[line]
+                    .iter()
+                    .find(|span| span.range.contains(&offset))
+                    .unwrap()
+                    .color;
+                let operator = source.find("and").unwrap();
+                assert_eq!(
+                    spans[line]
+                        .iter()
+                        .find(|span| span.range.contains(&operator))
+                        .unwrap()
+                        .color,
+                    color
+                );
+            }
+        }
+    }
+
+    #[test]
     fn new_language_tokens_and_multiline_edits_match_fresh_parse() {
         for (file, text, tokens) in [
             ("plugin.sma", "public plugin_init() { new value = 42; server_print(\"hello\"); }", ["public", "42", "hello"]),

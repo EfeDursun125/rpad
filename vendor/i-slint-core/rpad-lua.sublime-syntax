@@ -1,0 +1,12 @@
+%YAML 1.2
+---
+name: RPad Lua
+file_extensions: [lua]
+scope: source.rpad-lua
+contexts:
+  main:
+    - match: '\b(?:and|not|or)\b'
+      scope: keyword.control.lua
+    - match: '\b[A-Za-z_]\w*(?=\s*\()'
+      scope: entity.name.function.lua
+    - include: scope:source.lua

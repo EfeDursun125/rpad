@@ -25,7 +25,7 @@ std::thread_local! {
         let mut builder = SyntaxSet::load_defaults_nonewlines().into_builder();
         builder.add(syntect::parsing::SyntaxDefinition::load_from_str(
             include_str!("rpad-config.sublime-syntax"), false, None).expect("embedded config grammar"));
-        for source in [include_str!("rpad-pawn.sublime-syntax"), include_str!("rpad-gdscript.sublime-syntax"), include_str!("rpad-cmake.sublime-syntax")] {
+        for source in [include_str!("rpad-lua.sublime-syntax"), include_str!("rpad-pawn.sublime-syntax"), include_str!("rpad-gdscript.sublime-syntax"), include_str!("rpad-cmake.sublime-syntax")] {
             builder.add(syntect::parsing::SyntaxDefinition::load_from_str(source, false, None)
                 .expect("embedded language grammar"));
         }
@@ -100,8 +100,11 @@ impl SyntaxCache {
                     "sh" | "bash" | "zsh" => "sh",
                     other => other,
                 };
-                let syntax = syntaxes
-                    .find_syntax_by_extension(extension)
+                let syntax = (if extension == "lua" {
+                    syntaxes.find_syntax_by_name("RPad Lua")
+                } else {
+                    syntaxes.find_syntax_by_extension(extension)
+                })
                     .or_else(|| syntaxes.find_syntax_by_name(&filename))
                     .or_else(|| {
                         syntaxes.find_syntax_by_first_line(text.lines().next().unwrap_or(""))

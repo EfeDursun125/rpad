@@ -353,6 +353,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Document::default()
     };
     let ui = AppWindow::new()?;
+    i_slint_core::api::set_xdg_app_id("rpad")?;
     bind_line_metrics(&ui);
     if let Some(font) = font::detect_ui() {
         ui.set_ui_font(font.family.into());
@@ -362,6 +363,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut saved_settings =
         settings::Settings::load(&settings_path, settings::Settings::capture(&ui));
     saved_settings.apply(&ui);
+    let window_settings = Rc::new(RefCell::new(saved_settings.clone()));
+    let timer_settings = window_settings.clone();
 
     let settings_timer = slint::Timer::default();
     let settings_ui = ui.as_weak();
@@ -373,7 +376,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(ui) = settings_ui.upgrade() else {
                 return;
             };
-            let current = settings::Settings::capture(&ui);
+            let current =
+                settings::Settings::capture_preserving_window(&ui, &timer_settings.borrow());
+            *timer_settings.borrow_mut() = current.clone();
 
             if current == saved_settings {
                 return;
@@ -432,7 +437,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.run()?;
     settings_timer.stop();
 
-    if let Err(error) = settings::Settings::capture(&ui).save(&settings_path) {
+    if let Err(error) =
+        settings::Settings::capture_preserving_window(&ui, &window_settings.borrow())
+            .save(&settings_path)
+    {
         eprintln!("rpad: could not save settings: {error}");
     }
 
