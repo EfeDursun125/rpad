@@ -1,27 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">RPad</title>
-  <desc id="desc">A red R on a dark rounded tile, paired with a folded text document and an insertion caret.</desc>
+  <desc id="desc">A sculpted coral R with beveled edges and a warm insertion caret inside a centered folded document on a dark rounded tile.</desc>
   <defs>
-    <linearGradient id="tile" x1="72" y1="24" x2="438" y2="496" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#272228"/><stop offset="1" stop-color="#100d12"/>
+    <linearGradient id="tile" x1="64" y1="24" x2="448" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35242f"/><stop offset="1" stop-color="#150f1c"/>
     </linearGradient>
-    <linearGradient id="red" x1="150" y1="110" x2="370" y2="405" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ff9382"/><stop offset=".42" stop-color="#ff4a59"/><stop offset="1" stop-color="#cf1744"/>
+    <radialGradient id="glow" cx=".46" cy=".40" r=".64">
+      <stop stop-color="#ff647c" stop-opacity=".16"/><stop offset="1" stop-color="#ff647c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="red" x1="136" y1="164" x2="310" y2="368" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffb49a"/><stop offset=".45" stop-color="#ff5a71"/><stop offset="1" stop-color="#ed245c"/>
     </linearGradient>
-    <linearGradient id="paper" x1="122" y1="81" x2="389" y2="426" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffcfbd" stop-opacity=".13"/><stop offset="1" stop-color="#ff9382" stop-opacity=".04"/>
+    <linearGradient id="paper-edge" x1="112" y1="72" x2="400" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffb49a"/><stop offset="1" stop-color="#e35b7b"/>
     </linearGradient>
-    <linearGradient id="edge" x1="75" y1="26" x2="421" y2="488" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#fff" stop-opacity=".18"/><stop offset="1" stop-color="#fff" stop-opacity=".02"/>
+    <linearGradient id="edge" x1="64" y1="24" x2="448" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd8cf" stop-opacity=".25"/><stop offset="1" stop-color="#ffd8cf" stop-opacity=".06"/>
     </linearGradient>
-    <path id="r" fill-rule="evenodd" d="M150 130H266C324 130 354 158 354 205C354 241 336 266 305 277L373 382H294L235 287H219V382H150ZM219 187V231H262C277 231 286 223 286 209C286 195 277 187 262 187Z"/>
+    <linearGradient id="bevel" x1="136" y1="164" x2="298" y2="292" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe4c9" stop-opacity=".95"/><stop offset=".55" stop-color="#ffb8a4" stop-opacity=".7"/><stop offset="1" stop-color="#ff758d" stop-opacity=".12"/>
+    </linearGradient>
+    <path id="letter-r" fill-rule="evenodd" d="M136 164H228C275 164 298 186 298 224C298 253 284 273 259 282L310 368H248L202 290H190V368H136ZM190 210V246H225C238 246 245 240 245 228C245 216 238 210 225 210Z"/>
   </defs>
   <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#tile)"/>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#glow)"/>
   <rect x="9" y="9" width="494" height="494" rx="111" fill="none" stroke="url(#edge)" stroke-width="2"/>
-  <path d="M143 79H327L391 143V405Q391 429 367 429H143Q119 429 119 405V103Q119 79 143 79Z" fill="url(#paper)" stroke="#ffd0c1" stroke-opacity=".18" stroke-width="3"/>
-  <path d="M327 80V123Q327 143 347 143H390" fill="#ffd0c1" fill-opacity=".08" stroke="#ffd0c1" stroke-opacity=".16" stroke-width="3"/>
-  <use href="#r" transform="translate(0 5)" fill="#720d29" opacity=".8"/>
-  <use href="#r" fill="url(#red)"/>
-  <path d="M151 131H266C311 131 340 150 350 181" fill="none" stroke="#ffd5c7" stroke-opacity=".6" stroke-width="3"/>
-  <path d="M354 299V352M347 299H361M347 352H361" fill="none" stroke="#ffd1bc" stroke-width="5" stroke-linecap="round"/>
+  <!-- The document is centered on both axes with equal opposite margins. -->
+  <path d="M124 72H324L416 164V412Q416 440 388 440H124Q96 440 96 412V100Q96 72 124 72Z" fill="#ffad9a" fill-opacity=".055" stroke="url(#paper-edge)" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M324 74V144Q324 164 344 164H414" fill="#ffb49a" fill-opacity=".25" stroke="url(#paper-edge)" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Shallow extrusion, shaded facets and light-catching edges echo RPlayer. -->
+  <use href="#letter-r" transform="translate(0 5)" fill="#710d30" opacity=".85"/>
+  <use href="#letter-r" fill="url(#red)"/>
+  <path d="M278 180C292 191 298 206 298 224C298 253 284 273 259 282L310 368H296L246 279C273 269 285 250 285 224C285 205 283 191 278 180Z" fill="#920e35" opacity=".28"/>
+  <path d="M136 356H178V212L190 210V368H136Z" fill="#9d123f" opacity=".17"/>
+  <path d="M203 290L248 368H261L214 290Z" fill="#ffc0a3" opacity=".24"/>
+  <path d="M137 367V165H228C272 165 296 186 297 218" fill="none" stroke="url(#bevel)" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M190 210V246H225C238 246 245 240 245 228C245 216 238 210 225 210Z" fill="none" stroke="#781032" stroke-opacity=".5" stroke-width="2"/>
+  <path d="M191 246H225C237 246 244 240 245 231M248 367H309" fill="none" stroke="#ffc6b0" stroke-opacity=".45" stroke-width="2"/>
+  <path d="M352 272V368M336 272H368M336 368H368" fill="none" stroke="#ffe0b8" stroke-width="12" stroke-linecap="round"/>
 </svg>

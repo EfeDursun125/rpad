@@ -85,7 +85,14 @@ jobs:
             'Preserves normal window dimensions when closing fullscreen or maximized, and fixes the Wayland application icon identity.' \
             'Built with optimization level 3, fat LTO and one codegen unit.' \
             > release-notes.md
-          gh release create "$tag" --target "$RELEASE_COMMIT" --title "RPad ${tag#v}" \
-            --notes-file release-notes.md --draft \
-            *.AppImage *.exe *.zip *.tar.gz SHA256SUMS
-          gh release edit "$tag" --draft=false
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" --clobber *.AppImage *.exe *.zip *.tar.gz SHA256SUMS
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$tag" \
+              -f sha="$RELEASE_COMMIT" -F force=true
+            gh release edit "$tag" --title "RPad ${tag#v}" --notes-file release-notes.md
+          else
+            gh release create "$tag" --target "$RELEASE_COMMIT" --title "RPad ${tag#v}" \
+              --notes-file release-notes.md --draft \
+              *.AppImage *.exe *.zip *.tar.gz SHA256SUMS
+            gh release edit "$tag" --draft=false
+          fi
