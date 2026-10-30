@@ -277,6 +277,11 @@ impl GraphicsBackend for WGPUBackend {
         if let WGPUWindowSurface::Surface(st) = surface {
             self.queue.borrow().as_ref().unwrap().present(st);
         }
+        // Drive non-blocking cleanup of completed GPU submissions on native backends.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(device) = self.device.borrow().as_ref() {
+            device.poll(wgpu::PollType::Poll)?;
+        }
         Ok(())
     }
 

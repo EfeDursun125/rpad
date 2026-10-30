@@ -74,7 +74,7 @@ impl LineModel {
             return count;
         }
 
-        let row = |index| {
+        let row = |index, animate_on_create| {
             let start = starts[index];
             let end = starts
                 .get(index + 1)
@@ -83,27 +83,32 @@ impl LineModel {
             LineRow {
                 content: previous[start..end].into(),
                 shown: true,
+                animate_on_create,
             }
         };
 
         if !self.rows_current.replace(true) {
-            self.rows.set_vec((0..count).map(row).collect::<Vec<_>>());
+            self.rows.set_vec(
+                (0..count)
+                    .map(|index| row(index, false))
+                    .collect::<Vec<_>>(),
+            );
         } else if let Some((first, old_count, new_count, at_end)) = changed_rows {
             let previous_total = self.rows.row_count();
 
             if at_end {
                 // Reuse fading trailing rows during rapid delete/insert sequences.
                 for index in first..count {
-                    self.set_row(index, row(index));
+                    self.set_row(index, row(index, true));
                 }
             } else {
                 for index in first..first + old_count.min(new_count) {
-                    self.set_row(index, row(index));
+                    self.set_row(index, row(index, true));
                 }
 
                 if new_count > old_count {
                     for index in first + old_count..first + new_count {
-                        self.rows.insert(index, row(index));
+                        self.rows.insert(index, row(index, true));
                     }
                 } else {
                     for _ in new_count..old_count {
@@ -122,6 +127,7 @@ impl LineModel {
                 self.rows.push(LineRow {
                     content: "".into(),
                     shown: false,
+                    animate_on_create: false,
                 });
             }
 
@@ -216,6 +222,17 @@ impl Model for LineModel {
 mod tests {
     use super::*;
 
+    #[test]
+    fn loading_rows_skips_animations_but_inserted_rows_animate() {
+        let model = LineModel::default();
+        model.sync("first\nsecond".into(), None, true);
+        assert!(!model.row_data(0).unwrap().animate_on_create);
+        assert!(!model.row_data(1).unwrap().animate_on_create);
+
+        model.sync("first\nsecond\nthird".into(), None, true);
+        assert!(model.row_data(2).unwrap().animate_on_create);
+    }
+
     fn assert_lines(model: &LineModel, text: &str) {
         let expected: Vec<_> = text.split('\n').collect();
         for (index, expected) in expected.iter().enumerate() {
@@ -309,6 +326,7 @@ mod benchmarks {
                 .map(|content| LineRow {
                     content: content.into(),
                     shown: true,
+                    animate_on_create: false,
                 })
                 .collect::<Vec<_>>(),
         );
@@ -326,6 +344,7 @@ mod benchmarks {
                 let row = LineRow {
                     content: content.into(),
                     shown: true,
+                    animate_on_create: false,
                 };
                 if legacy.row_data(index).as_ref() != Some(&row) {
                     legacy.set_row_data(index, row);

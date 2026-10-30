@@ -2,7 +2,7 @@ import { Palette } from "std-widgets.slint";
 import { ScrollView } from "solid-scrollview.slint";
 import { AnimatedLineNumber } from "line-number.slint";
 
-export struct LineRow { content: string, shown: bool }
+export struct LineRow { content: string, shown: bool, animate-on-create: bool }
 
 export global Theme {
     in-out property <color> surface: #191211;
@@ -325,6 +325,7 @@ export component AppWindow inherits Window {
                             number := AnimatedLineNumber {
                                 shown: line.shown;
                                 animated: root.smooth-caret;
+                                animate-on-create: line.animate-on-create;
                                 x: 0px; y: 0px; width: parent.width - 12px; height: root.line-height;
                                 text: index + 1;
                                 font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;

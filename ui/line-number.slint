@@ -3,11 +3,12 @@
 export component AnimatedLineNumber inherits Text {
     in property <bool> shown: true;
     in property <bool> animated: true;
+    in property <bool> animate-on-create: true;
     private property <duration> started;
     private property <float> start-opacity: 0;
     private property <bool> fading: true;
     opacity: 0;
-    init => { root.started = animation-tick(); if !root.animated { root.opacity = root.shown ? 1 : 0; root.fading = false; } }
+    init => { root.started = animation-tick(); if !root.animated || !root.animate-on-create { root.opacity = root.shown ? 1 : 0; root.fading = false; } }
     changed animated => { if !root.animated { root.opacity = root.shown ? 1 : 0; root.fading = false; } }
     changed shown => {
         root.start-opacity = root.opacity;

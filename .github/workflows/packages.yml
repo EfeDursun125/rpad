@@ -19,13 +19,13 @@ jobs:
       - run: python scripts/package-source.py
       - run: python scripts/collect-licenses.py
       - run: python scripts/package-windows.py
-      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.2-windows-x86_64.exe
+      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.3-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-windows-x86_64
           path: |
-            dist/RPad-0.1.2-windows-x86_64.zip
-            dist/RPad-0.1.2-windows-x86_64.exe
+            dist/RPad-0.1.3-windows-x86_64.zip
+            dist/RPad-0.1.3-windows-x86_64.exe
   appimage:
     runs-on: ubuntu-24.04
     steps:
@@ -43,15 +43,15 @@ jobs:
         run: |
           ./scripts/build-appdir.sh
           cp -r dist/licenses target/RPad.AppDir/usr/share/doc/rpad/
-          cp dist/*sources.tar.gz dist/RPad-0.1.2-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
+          cp dist/*sources.tar.gz dist/RPad-0.1.3-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
           ./scripts/build-appimage.sh
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.2-x86_64.AppImage --version
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.3-x86_64.AppImage --version
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-AppImage-x86_64
           path: |
-            dist/RPad-0.1.2-x86_64.AppImage
-            dist/RPad-0.1.2-source.tar.gz
+            dist/RPad-0.1.3-x86_64.AppImage
+            dist/RPad-0.1.3-source.tar.gz
             dist/third-party-sources.tar.gz
   release:
     needs: [windows, appimage]

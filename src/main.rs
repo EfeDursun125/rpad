@@ -107,6 +107,8 @@ fn update_lines_edit(ui: &AppWindow, edit: Option<edit::EditRange>) {
     }
 }
 fn install_document(ui: &AppWindow, state: &Rc<RefCell<Document>>, doc: Document) {
+    // Existing rows belong to the previous document; load new rows without per-line fade timers.
+    ui.set_document_lines(slint::ModelRc::new(lines::LineModel::default()));
     let filename = doc
         .path
         .as_ref()

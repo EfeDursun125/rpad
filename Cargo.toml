@@ -1,6 +1,6 @@
 [package]
 name = "rpad"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "RPad: a small Material 3 text editor with smooth caret and text animations"
 license = "GPL-3.0-only"

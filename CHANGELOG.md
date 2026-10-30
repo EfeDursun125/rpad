@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Avoid starting line-number animations while loading an existing document.
+- Poll the WGPU device after presenting frames so completed GPU resources can be reclaimed.
+
 ## 0.1.2
 
 - Highlight Lua function calls and logical operators.
