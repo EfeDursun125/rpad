@@ -3654,7 +3654,7 @@ dependencies = [
 
 [[package]]
 name = "rpad"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "i-slint-backend-testing",
  "i-slint-core",
