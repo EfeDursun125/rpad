@@ -25,7 +25,7 @@ std::thread_local! {
         let mut builder = SyntaxSet::load_defaults_nonewlines().into_builder();
         builder.add(syntect::parsing::SyntaxDefinition::load_from_str(
             include_str!("rpad-config.sublime-syntax"), false, None).expect("embedded config grammar"));
-        for source in [include_str!("rpad-lua.sublime-syntax"), include_str!("rpad-pawn.sublime-syntax"), include_str!("rpad-gdscript.sublime-syntax"), include_str!("rpad-cmake.sublime-syntax")] {
+        for source in [include_str!("rpad-lua.sublime-syntax"), include_str!("rpad-pawn.sublime-syntax"), include_str!("rpad-gdscript.sublime-syntax"), include_str!("rpad-cmake.sublime-syntax"), include_str!("rpad-glsl.sublime-syntax"), include_str!("rpad-wgsl.sublime-syntax"), include_str!("rpad-gdshader.sublime-syntax")] {
             builder.add(syntect::parsing::SyntaxDefinition::load_from_str(source, false, None)
                 .expect("embedded language grammar"));
         }

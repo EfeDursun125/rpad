@@ -76,6 +76,9 @@ mod tests {
             ("player.gd", "@export var speed: float = 42.0; var label = \"hello\"", ["@export", "float", "hello"]),
             ("Example.java", "public class Example { int value = 42; String name = \"hello\"; }", ["public", "42", "hello"]),
             ("Example.cs", "public class Example { int value = 42; string name = \"hello\"; }", ["public", "42", "hello"]),
+            ("test.glsl", "uniform sampler2D tex; vec3 color = vec3(1.0);", ["sampler2D", "vec3", "1.0"]),
+            ("test.wgsl", "fn main() -> @position vec4 { let x: f32 = 1.0f; }", ["fn", "vec4", "1.0f"]),
+            ("test.gdshader", "shader_type light; uniform vec3 base_color : color = vec3(1.0);", ["shader_type", "light", "vec3"]),
         ] {
             for dark in [false, true] {
                 let mut cache = SyntaxCache::default();
@@ -156,6 +159,9 @@ mod tests {
             ("test.sql", "SELECT * FROM example WHERE value = 42;"),
             ("test.ts", "const value: number = 42;"),
             ("test.md", "# Heading\n**strong**"),
+            ("test.glsl", "#version 300 es\nprecision mediump float;\nsampler2D tex;\nvertex {\n    // compute color\n    vec3 color = texture(tex, uv);\n}"),
+            ("test.wgsl", "fn main() -> @location(0) vec4 {\n    let x: f32 = 1.5f;\n    /* block */\n    return x * input.position;\n}"),
+            ("test.gdshader", "shader_type light;\nrender_mode double_sided;\nuniform sampler2D tex;\nuniform vec3 base_color : color = vec3(1, 0, 0);\nfragment:\n{\n    diffuse = base_color;\n}"),
         ] {
             let mut cache = SyntaxCache::default();
             let spans = cache.update(&text.into(), file.into(), true);

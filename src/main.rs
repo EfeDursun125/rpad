@@ -144,7 +144,7 @@ fn find(ui: &AppWindow, backwards: bool, cache: &mut search::SearchCache) {
         ui.set_search_status("No matches".into());
     }
 }
-fn replace(ui: &AppWindow, all: bool, cache: &mut search::SearchCache) {
+fn replace(ui: &AppWindow, all: bool) {
     let needle = ui.get_search_text();
     if needle.is_empty() {
         return;
@@ -155,22 +155,31 @@ fn replace(ui: &AppWindow, all: bool, cache: &mut search::SearchCache) {
         let count = text.matches(needle.as_str()).count();
         if count > 0 {
             ui.set_document_text(text.replace(needle.as_str(), replacement.as_str()).into());
-            ui.invoke_select_range(0, 0);
+            // Highlight the first replaced region so the change is visible.
+            let end = replacement.len();
+            ui.invoke_select_range(0, end as i32);
             ui.invoke_edited();
         }
         ui.set_search_status(format!("{count} replaced").into());
     } else {
         let a = (ui.get_cursor_offset().max(0) as usize).min(text.len());
         let b = (ui.get_anchor_offset().max(0) as usize).min(text.len());
-        if text.get(a.min(b)..a.max(b)) == Some(needle.as_str()) {
-            let mut changed = text.to_string();
-            changed.replace_range(a.min(b)..a.max(b), replacement.as_str());
+        // Compute the selection bounds once and reuse for both matching and replacement.
+        let lo = a.min(b);
+        let hi = a.max(b);
+        if text.get(lo..hi) == Some(needle.as_str()) {
+            let mut changed = String::from(text.as_str());
+            changed.replace_range(lo..hi, replacement.as_str());
             ui.set_document_text(changed.into());
-            let end = a.min(b) + replacement.len();
-            ui.invoke_select_range(end as i32, end as i32);
+            // Select the just-replaced region so it is highlighted, instead of
+            // collapsing to a caret and jumping away via find.
+            let end = lo + replacement.len();
+            ui.invoke_select_range(lo as i32, end as i32);
             ui.invoke_edited();
+            ui.set_search_status("1 replaced".into());
+        } else {
+            ui.set_search_status("No match".into());
         }
-        find(ui, false, cache);
     }
 }
 fn selection(ui: &AppWindow) -> history::Selection {
@@ -309,7 +318,7 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let weak = ui.as_weak();
     ui.on_replace_text(move |all| {
         if let Some(ui) = weak.upgrade() {
-            replace(&ui, all, &mut search.borrow_mut());
+            replace(&ui, all);
         }
     });
 }
@@ -1084,7 +1093,7 @@ mod editor_tests {
         assert!(ui.get_dirty());
         ui.set_search_text("alpha".into());
         ui.set_replacement_text("Türkçe".into());
-        replace(&ui, true, &mut search::SearchCache::default());
+        replace(&ui, true);
         advance(1);
         assert_eq!(ui.get_document_text(), "Türkçe beta Türkçe");
         ui.invoke_edit_command("undo".into());
@@ -1163,7 +1172,7 @@ mod editor_tests {
         ui.invoke_insert_at_caret("\tfirst\r\n".into());
         ui.set_search_text("first".into());
         ui.set_replacement_text("second".into());
-        replace(&ui, true, &mut search::SearchCache::default());
+        replace(&ui, true);
         advance(1);
         assert!(ui.get_document_text().contains("\tsecond\r\n"));
         ui.invoke_edit_command("undo".into());
@@ -1178,6 +1187,69 @@ mod editor_tests {
             "",
             "undo must not leak the preceding document"
         );
+        ui.hide().unwrap();
+    }
+
+    #[test]
+    fn replace_highlights_result_and_reports_status() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = AppWindow::new().unwrap();
+        let state = Rc::new(RefCell::new(Document::default()));
+        bind_editor(&ui, &state);
+        ui.window().set_size(slint::LogicalSize::new(980.0, 700.0));
+        ui.show().unwrap();
+        advance(1);
+
+        // Spaces and tabs must be replaced just like any other substring.
+        ui.set_document_text("a b\tc\td".into());
+        ui.set_search_text(" ".into());
+        ui.set_replacement_text("X".into());
+        replace(&ui, true);
+        advance(1);
+        assert_eq!(ui.get_document_text(), "aXb\tc\td");
+
+        // Single replace must highlight the just-replaced region (start..end),
+        // not collapse to a bare caret.
+        ui.set_document_text("a b\tc".into());
+        ui.set_search_text("\t".into());
+        ui.set_replacement_text("Y".into());
+        ui.invoke_select_range(3, 4);
+        replace(&ui, false);
+        advance(1);
+        assert_eq!(ui.get_document_text(), "a bYc");
+        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (3, 4));
+        assert_eq!(ui.get_search_status(), "1 replaced");
+
+        // Replace all must highlight the first replacement and report a count.
+        ui.set_document_text("a\tb".into());
+        ui.set_search_text("\t".into());
+        ui.set_replacement_text("Z".into());
+        replace(&ui, true);
+        advance(1);
+        assert_eq!(ui.get_document_text(), "aZb");
+        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (0, 1));
+        assert_eq!(ui.get_search_status(), "1 replaced");
+
+        // Replace all reports the real match count.
+        ui.set_document_text("alpha beta alpha".into());
+        ui.set_search_text("alpha".into());
+        ui.set_replacement_text("Q".into());
+        replace(&ui, true);
+        advance(1);
+        assert_eq!(ui.get_document_text(), "Q beta Q");
+        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (0, 1));
+        assert_eq!(ui.get_search_status(), "2 replaced");
+
+        // A single replace when the selection does not match reports no match.
+        ui.set_document_text("hello".into());
+        ui.set_search_text("x".into());
+        ui.set_replacement_text("y".into());
+        ui.invoke_select_range(0, 1);
+        replace(&ui, false);
+        advance(1);
+        assert_eq!(ui.get_document_text(), "hello");
+        assert_eq!(ui.get_search_status(), "No match");
+
         ui.hide().unwrap();
     }
 }

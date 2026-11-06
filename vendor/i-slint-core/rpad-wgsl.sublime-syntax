@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-3.0-only
+%YAML 1.2
+---
+name: RPad WGSL
+file_extensions: [wgsl]
+scope: source.rpad-wgsl
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin
+      push: block-comment
+    - match: '\b(?:fn|struct|alias|let|const|var|fn|assert)\b'
+      scope: storage.type
+    - match: '\b(?:private|public|workgroup|storage|uniform|access|readonly|writeonly)\b'
+      scope: keyword
+    - match: '\b(?:break|continue|continues|else|for|if|return|switch|case|default)\b'
+      scope: keyword.control
+    - match: '\b(?:true|false|null)\b'
+      scope: constant.language
+    - match: '\b(?:vec[234]|mat[234](?:x?[234])?|tensor|texture_[A-Za-z0-9_]+|storage_buffer|uniform_buffer|atomic<u32>)\b'
+      scope: storage.type
+    - match: '\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?(f|u|i)?)\b'
+      scope: constant.numeric
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push: double-string
+    - match: "'"
+      scope: punctuation.definition.string.begin
+      push: single-string
+    - match: '\b[A-Za-z_]\w*(?=\s*\()'
+      scope: entity.name.function
+  block-comment:
+    - meta_scope: comment.block
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '\*/'
+      scope: punctuation.definition.comment.end
+      pop: true
+  double-string:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"|$'
+      scope: punctuation.definition.string.end
+      pop: true
+  single-string:
+    - meta_scope: string.quoted.single
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: "'|$"
+      scope: punctuation.definition.string.end
+      pop: true

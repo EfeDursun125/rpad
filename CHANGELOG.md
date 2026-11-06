@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Maintenance and performance refinements.
+
 ## 0.1.3
 
 - Avoid starting line-number animations while loading an existing document.
