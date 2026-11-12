@@ -1,4 +1,5 @@
 /// Leave CPU time available for the compositor and interactive desktop processes.
+#[rustfmt::skip]
 pub fn lower_priority()
 {
     #[cfg(unix)]

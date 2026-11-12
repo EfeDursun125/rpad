@@ -6,8 +6,8 @@ mod font;
 mod history;
 mod indent;
 mod lines;
-mod search;
 mod scheduling;
+mod search;
 mod settings;
 mod syntax;
 mod theme;
@@ -660,6 +660,7 @@ mod editor_tests {
 
     #[test]
     #[ignore = "requires a display and RPAD_PERF_FILE"]
+    #[rustfmt::skip]
     fn large_file_paged_layout_navigation()
     {
         let ui = AppWindow::new().unwrap();
