@@ -129,7 +129,12 @@ fn with_text_layout<R>(
     }
 
     let result = f(&layout);
-    let (paragraphs, line_breaking) = layout.dismantle();
+    let (mut paragraphs, line_breaking) = layout.dismantle();
+    let mut resident_budget = 256usize;
+    for paragraph in &mut paragraphs
+    {
+        paragraph.layout.retain_with_budget(&mut resident_budget);
+    }
     guard.restore(paragraphs, line_breaking);
     Some(result)
 }
@@ -554,6 +559,46 @@ fn text_content_widths_impl(
         let layout_builder =
             shaping::content_widths_builder(text_item.font_request(item_rc), scale_factor);
 
+        if let PlainOrStyledText::Plain(text) = text_item.text()
+        {
+            if text.len() > 1024 * 1024
+            {
+                let mut min = 0.0f32;
+                let mut max = 0.0f32;
+                let mut repeated_widths = std::collections::HashMap::<std::string::String, (f32, f32)>::new();
+                let mut cached_bytes = 0usize;
+                for range in shaping::paragraph_ranges(&text).take(text_item.line_limit().unwrap_or(usize::MAX))
+                {
+                    let source = &text[range];
+                    let widths = if let Some(widths) = repeated_widths.get(source)
+                    {
+                        *widths
+                    }
+                    else
+                    {
+                        let layout = layout_builder.build(font_ctx, source, None, None, &[]);
+                        let widths = layout.calculate_content_widths();
+                        if repeated_widths.len() >= 8192 || cached_bytes + source.len() > 4 * 1024 * 1024
+                        {
+                            repeated_widths.clear();
+                            cached_bytes = 0;
+                        }
+                        if source.len() <= 4 * 1024 * 1024
+                        {
+                            cached_bytes += source.len();
+                            repeated_widths.insert(source.into(), (widths.min, widths.max));
+                        }
+                        (widths.min, widths.max)
+                    };
+                    min = min.max(widths.0);
+                    max = max.max(widths.1);
+                }
+                return crate::renderer::ContentWidths {
+                    min: PhysicalLength::new(min) / scale_factor,
+                    max: PhysicalLength::new(max) / scale_factor,
+                };
+            }
+        }
         let paragraphs_without_linebreaks =
             create_text_paragraphs(&layout_builder, font_ctx, text_item.text(), Color::default());
 

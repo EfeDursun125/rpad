@@ -3,6 +3,8 @@ use crate::LineRow;
 use slint::{Model, ModelTracker, SharedString, VecModel};
 use std::cell::{Cell, RefCell};
 
+pub const MAX_RENDERED_LINES: usize = 50_000;
+
 #[derive(Default)]
 pub struct LineModel {
     rows: VecModel<LineRow>,
@@ -66,7 +68,7 @@ impl LineModel {
         *previous = text;
         let count = starts.len();
 
-        if !visible {
+        if !visible || count > MAX_RENDERED_LINES {
             if self.rows_current.replace(false) {
                 self.rows.set_vec(Vec::new());
             }
@@ -293,20 +295,15 @@ mod tests {
     }
 
     #[test]
-    fn large_document_edit_reuses_unchanged_rows_and_snapshot() {
+    fn large_document_skips_materialized_rows_and_keeps_positions() {
         let model = LineModel::default();
         let old: SharedString = "same line\n".repeat(100_000).into();
         model.sync(old.clone(), None, true);
-        let first = model.row_data(0).unwrap().content;
-        let middle = model.row_data(50_000).unwrap().content;
+        assert_eq!(model.row_count(), 0);
         let new: SharedString = format!("{old}last").into();
         model.sync(new.clone(), difference(&old, &new), true);
 
-        assert_eq!(model.row_data(0).unwrap().content.as_ptr(), first.as_ptr());
-        assert_eq!(
-            model.row_data(50_000).unwrap().content.as_ptr(),
-            middle.as_ptr()
-        );
+        assert_eq!(model.row_count(), 0);
         assert_eq!(model.text.borrow().as_ptr(), new.as_ptr());
         assert_eq!(model.position(&new, new.len()), Some((100_001, 5)));
     }

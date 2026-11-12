@@ -411,11 +411,8 @@ impl FemtoVGRenderer<WGPUBackend> {
             surface.get_default_config(&adapter, size.width, size.height).unwrap();
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        surface_config.present_mode = if swapchain_capabilities.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-            wgpu::PresentMode::Mailbox
-        } else {
-            wgpu::PresentMode::Fifo
-        };
+        // FIFO applies display backpressure instead of continually replacing mailbox frames.
+        surface_config.present_mode = wgpu::PresentMode::Fifo;
         surface_config.desired_maximum_frame_latency = 1;
         let swapchain_format = swapchain_capabilities
             .formats

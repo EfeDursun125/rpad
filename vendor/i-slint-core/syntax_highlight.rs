@@ -7,6 +7,7 @@ use syntect::{
     parsing::{ParseState, ScopeStack, SyntaxSet},
 };
 
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColorSpan {
     pub range: Range<usize>,

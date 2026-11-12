@@ -169,12 +169,40 @@ pub(super) fn layout(
         None
     };
 
+    // Color-only syntax spans do not affect geometry. Repeated tab-free paragraphs share
+    // exact metrics for this font, width and alignment, without retaining their glyph arrays.
+    let mut repeated_metrics = std::collections::HashMap::new();
+    let mut metrics_bytes = 0usize;
     let mut para_y = 0.0;
     for para in paragraphs.iter_mut() {
         let breaking = (max_physical_width, inputs.alignment);
         if para.breaking != Some(breaking) {
+            let source = if para.tab_markers.is_empty() { para.layout.source_text() } else { None };
+            if let Some(metrics) = source.as_ref().and_then(|text| repeated_metrics.get(text)).copied()
+            {
+                para.layout.restore_metrics(metrics, breaking);
+                para.breaking = Some(breaking);
+                para.y = PhysicalLength::new(para_y);
+                para_y += metrics.0;
+                continue;
+            }
+            para.layout.prepare(font_context);
             para.layout.break_all_lines(max_physical_width.map(|width| width.get()));
             para.layout.align(inputs.alignment, parley::AlignmentOptions::default());
+            para.layout.finish(breaking);
+            if let Some(text) = source
+            {
+                if repeated_metrics.len() >= 8192 || metrics_bytes + text.len() > 4 * 1024 * 1024
+                {
+                    repeated_metrics.clear();
+                    metrics_bytes = 0;
+                }
+                if text.len() <= 4 * 1024 * 1024
+                {
+                    metrics_bytes += text.len();
+                    repeated_metrics.insert(text, para.layout.metrics());
+                }
+            }
             para.breaking = Some(breaking);
             // Tab geometry shares the paragraph's break/align cache. Selection and animation
             // frames never rescan the source or resolve font glyphs for whitespace markers.
@@ -197,6 +225,7 @@ pub(super) fn layout(
 
         para.y = PhysicalLength::new(para_y);
         para_y += para.layout.height();
+        para.layout.evict();
     }
 
     let line_limit_cut =
@@ -266,14 +295,14 @@ pub(super) fn layout(
 /// paragraph) of the last kept line. Returns `None` when all lines fit the limit, so an active
 /// cut always means that at least one line was dropped.
 fn line_limit_cut(paragraphs: &[TextParagraph], max_lines: usize) -> Option<(usize, usize)> {
-    let total_lines: usize = paragraphs.iter().map(|p| p.layout.lines().len()).sum();
+    let total_lines: usize = paragraphs.iter().map(|p| p.layout.line_count()).sum();
     if total_lines <= max_lines {
         return None;
     }
 
     let mut seen_lines = 0;
     for (paragraph_index, para) in paragraphs.iter().enumerate() {
-        let line_count = para.layout.lines().len();
+        let line_count = para.layout.line_count();
         // seen_lines < max_lines holds on entry, so the cut line index can't underflow and
         // lands within this paragraph's lines.
         if seen_lines + line_count >= max_lines {
@@ -455,7 +484,7 @@ impl Layout {
             .iter()
             .enumerate()
             .rev()
-            .find_map(|(pi, para)| para.layout.lines().len().checked_sub(1).map(|li| (pi, li)));
+            .find_map(|(pi, para)| para.layout.line_count().checked_sub(1).map(|li| (pi, li)));
 
         let (last_paragraph, last_line) = last_within_box.unwrap_or((0, 0));
         let needs_ellipsis =

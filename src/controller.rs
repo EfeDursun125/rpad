@@ -81,7 +81,7 @@ impl Controller {
             "about" => self.dialog(
                 3,
                 "RPad",
-                "A small, calm text editor, made for personal use.\n\n\n\nEfeDursun125\nVersion 0.1.4 · GPL-3.0-only\nRust · Slint · Material 3",
+                "A small, calm text editor, made for personal use.\n\n\n\nEfeDursun125\nVersion 0.1.5 · GPL-3.0-only\nRust · Slint · Material 3",
             ),
             _ => {}
         }
@@ -143,20 +143,35 @@ impl Controller {
         self.set_busy(true);
         let handler = self.clone();
         let weak = self.ui.clone();
+        if let Some(ui) = weak.upgrade() {
+            ui.set_status("Opening file…".into());
+        }
         // Rc stays on the event-loop thread. Only Send data crosses to the worker.
         let (tx, rx) = std::sync::mpsc::channel();
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let opened = rfd::FileDialog::new()
                 .set_title("Open text file")
                 .pick_file()
                 .map(|path| {
-                    Document::open(&path).map_err(|e| format!("{}\n\n{e}", path.display()))
+                    Document::open_with_progress(&path, |loaded, total| {
+                        let _ = progress_tx.send((loaded, total));
+                    })
+                    .map_err(|e| format!("{}\n\n{e}", path.display()))
                 });
             let _ = tx.send(opened);
         });
         Self::poll(move || {
-            if weak.upgrade().is_none() {
+            let Some(ui) = weak.upgrade() else {
                 return true;
+            };
+            if let Some((loaded, total)) = progress_rx.try_iter().last() {
+                let percent = loaded
+                    .saturating_mul(100)
+                    .checked_div(total)
+                    .unwrap_or(100)
+                    .min(100);
+                ui.set_status(format!("Loading file… {percent}%").into());
             }
             match rx.try_recv() {
                 Ok(result) => {
@@ -169,9 +184,8 @@ impl Controller {
                         }
                         Some(Err(error)) => handler.error("Could not open", &error),
                         None => {
-                            if let Some(ui) = handler.ui.upgrade() {
-                                ui.invoke_focus_editor();
-                            }
+                            ui.set_status("Ready".into());
+                            ui.invoke_focus_editor();
                         }
                     }
                     true

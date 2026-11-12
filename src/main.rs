@@ -7,6 +7,7 @@ mod history;
 mod indent;
 mod lines;
 mod search;
+mod scheduling;
 mod settings;
 mod syntax;
 mod theme;
@@ -116,7 +117,7 @@ fn install_document(ui: &AppWindow, state: &Rc<RefCell<Document>>, doc: Document
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Untitled".into());
     syntax::configure_filename(ui, filename.into());
-    ui.set_document_text(doc.text.clone().into());
+    ui.set_document_text(doc.text.clone());
     ui.invoke_select_range(0, 0);
     *state.borrow_mut() = doc;
     refresh(ui, &state.borrow());
@@ -354,6 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("rpad: {error}");
         std::process::exit(2)
     });
+    scheduling::lower_priority();
     theme::prepare_sudo_display();
     let initial = if let Some(path) = path {
         Document::open(&path).unwrap_or_else(|error| {
@@ -650,6 +652,47 @@ mod editor_tests {
             ui.window().request_redraw();
             let fresh = ui.window().take_snapshot().unwrap();
             assert_eq!(warm.as_slice(), fresh.as_slice());
+            slint::quit_event_loop().unwrap();
+        });
+        slint::run_event_loop().unwrap();
+        ui.hide().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires a display and RPAD_PERF_FILE"]
+    fn large_file_paged_layout_navigation()
+    {
+        let ui = AppWindow::new().unwrap();
+        ui.set_smooth_caret(false);
+        bind_line_metrics(&ui);
+        let state = Rc::new(RefCell::new(Document::default()));
+        bind_editor(&ui, &state);
+        let path = std::path::PathBuf::from(std::env::var("RPAD_PERF_FILE").unwrap());
+        let started = std::time::Instant::now();
+        let document = Document::open(&path).unwrap();
+        install_document(&ui, &state, document);
+        ui.show().unwrap();
+        let test_ui = ui.clone_strong();
+        slint::Timer::single_shot(Duration::from_millis(100), move || {
+            let ui = test_ui;
+            let text = ui.get_document_text();
+            eprintln!("large-file first-frame elapsed: {:?}", started.elapsed());
+            for offset in [0, text.len() / 2, text.len()]
+            {
+                let mut boundary = offset;
+                while !text.is_char_boundary(boundary)
+                {
+                    boundary -= 1;
+                }
+                ui.invoke_select_range(boundary as i32, boundary as i32);
+                ui.window().take_snapshot().unwrap();
+                eprintln!("large-file cursor={boundary} elapsed={:?}", started.elapsed());
+            }
+            ui.set_wrap_lines(false);
+            ui.window().take_snapshot().unwrap();
+            ui.set_wrap_lines(true);
+            ui.window().take_snapshot().unwrap();
+            assert_eq!(ui.get_document_text(), text);
             slint::quit_event_loop().unwrap();
         });
         slint::run_event_loop().unwrap();

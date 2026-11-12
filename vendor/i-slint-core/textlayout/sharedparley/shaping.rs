@@ -10,6 +10,7 @@
 //! dependencies, so neither may shape through anything narrower.
 
 use super::*;
+use alloc::boxed::Box;
 use crate::SharedString;
 use unicode_width::UnicodeWidthChar;
 
@@ -31,6 +32,7 @@ pub(super) struct Brush {
     pub(super) link_color: Option<Color>,
 }
 
+#[derive(Clone)]
 pub(super) struct LayoutWithoutLineBreaksBuilder {
     pub(super) font_request: Option<FontRequest>,
     pub(super) text_wrap: TextWrap,
@@ -317,6 +319,8 @@ fn create_text_paragraphs_memo(
     previous: Option<Vec<TextParagraph>>,
 ) -> Vec<TextParagraph> {
     let plain = matches!(text, PlainOrStyledText::Plain(_));
+    let paged = memo.is_some() && matches!(&text, PlainOrStyledText::Plain(text) if text.len() > 1024 * 1024);
+    let page_builder = Rc::new(layout_builder.clone());
     let style = Rc::new(super::memo::Style::new(layout_builder));
     let paragraph_from_text =
         |font_context: &mut parley::FontContext,
@@ -349,7 +353,7 @@ fn create_text_paragraphs_memo(
             TextParagraph {
                 range,
                 y: PhysicalLength::default(),
-                layout,
+                layout: ParagraphLayout::resident(layout),
                 links,
                 code_ranges,
                 retained: None,
@@ -403,20 +407,36 @@ fn create_text_paragraphs_memo(
                         .get(index)
                         .cloned()
                         .unwrap_or_default();
-                    let mut paragraph = paragraph_from_text(
+                    let mut paragraph = if paged
+                    {
+                        TextParagraph {
+                            range: range.clone(),
+                            y: PhysicalLength::zero(),
+                            layout: ParagraphLayout::paged(page_builder.clone(), text[range.clone()].into(), colors.clone()),
+                            links: Vec::new(), code_ranges: Vec::new(), retained: None,
+                            breaking: None, tab_markers: Vec::new(),
+                        }
+                    }
+                    else
+                    {
+                        paragraph_from_text(
                         font_context,
                         &text[range.clone()],
                         range.clone(),
                         Default::default(),
                         Default::default(),
                         colors.as_slice(),
-                    );
+                    )
+                    };
                     paragraph.tab_markers = text[range.clone()].bytes().enumerate()
                         .filter(|(_, byte)| *byte == b'\t')
                         .map(|(offset, _)| TabMarker { offset, line: 0, rect: PhysicalRect::zero() })
                         .collect();
                     paragraph.retained = Some(RetainedParagraph {
-                        text: text[range.clone()].into(),
+                        text: paragraph.layout.source.as_ref().map_or_else(
+                            || text[range.clone()].into(),
+                            |(_, text, _)| text.clone(),
+                        ),
                         colors,
                         style: style.clone(),
                     });
@@ -534,10 +554,142 @@ pub(super) struct TextParagraph {
     pub(super) breaking: Option<(Option<PhysicalLength>, parley::Alignment)>,
     pub(super) range: Range<usize>,
     pub(super) y: PhysicalLength,
-    pub(super) layout: parley::Layout<Brush>,
+    pub(super) layout: ParagraphLayout,
     pub(super) links: std::vec::Vec<(Range<usize>, std::string::String)>,
     /// Byte ranges within the paragraph's text that carry `Style::Code`. Drawn with a
     /// translucent rounded background by `draw` for visual parity with common markdown
     /// renderers.
     pub(super) code_ranges: std::vec::Vec<Range<usize>>,
+}
+
+
+pub(super) struct ParagraphLayout
+{
+    value: std::cell::OnceCell<Box<parley::Layout<Brush>>>,
+    source: Option<(Rc<LayoutWithoutLineBreaksBuilder>, SharedString, Rc<Vec<crate::syntax_highlight::ColorSpan>>)>,
+    breaking: Option<(Option<PhysicalLength>, parley::Alignment)>,
+    height: f32,
+    width: f32,
+    line_count: usize,
+}
+
+impl ParagraphLayout
+{
+    fn resident(layout: parley::Layout<Brush>) -> Self
+    {
+        Self { value: std::cell::OnceCell::from(Box::new(layout)), source: None, breaking: None, height: 0., width: 0., line_count: 0 }
+    }
+
+    fn paged(builder: Rc<LayoutWithoutLineBreaksBuilder>, text: SharedString, colors: Rc<Vec<crate::syntax_highlight::ColorSpan>>) -> Self
+    {
+        Self { value: Default::default(), source: Some((builder, text, colors)), breaking: None, height: 0., width: 0., line_count: 0 }
+    }
+
+    fn build(&self, fonts: &mut parley::FontContext) -> parley::Layout<Brush>
+    {
+        let (builder, text, colors) = self.source.as_ref().expect("resident paragraph has a layout");
+        let mut layout = builder.build(fonts, text, None, None, colors);
+        if let Some((width, alignment)) = self.breaking
+        {
+            layout.break_all_lines(width.map(|width| width.get()));
+            layout.align(alignment, parley::AlignmentOptions::default());
+        }
+        layout
+    }
+
+    pub(super) fn source_text(&self) -> Option<SharedString>
+    {
+        self.source.as_ref().map(|(_, text, _)| text.clone())
+    }
+
+    pub(super) fn metrics(&self) -> (f32, f32, usize)
+    {
+        (self.height(), self.full_width(), self.line_count())
+    }
+
+    pub(super) fn restore_metrics(&mut self, metrics: (f32, f32, usize), breaking: (Option<PhysicalLength>, parley::Alignment))
+    {
+        self.evict();
+        self.height = metrics.0;
+        self.width = metrics.1;
+        self.line_count = metrics.2;
+        self.breaking = Some(breaking);
+    }
+
+    pub(super) fn prepare(&mut self, fonts: &mut parley::FontContext)
+    {
+        if self.value.get().is_none()
+        {
+            let layout = self.build(fonts);
+            let _ = self.value.set(Box::new(layout));
+        }
+    }
+
+    pub(super) fn finish(&mut self, breaking: (Option<PhysicalLength>, parley::Alignment))
+    {
+        self.breaking = Some(breaking);
+        self.height = self.value.get().unwrap().height();
+        self.width = self.value.get().unwrap().full_width();
+        self.line_count = self.value.get().unwrap().lines().len();
+    }
+
+    pub(super) fn evict(&mut self)
+    {
+        if self.source.is_some()
+        {
+            self.value.take();
+        }
+    }
+
+    pub(super) fn retain_with_budget(&mut self, budget: &mut usize)
+    {
+        if self.source.is_some() && self.value.get().is_some()
+        {
+            if *budget == 0
+            {
+                self.evict();
+            }
+            else
+            {
+                *budget -= 1;
+            }
+        }
+    }
+
+    pub(super) fn height(&self) -> f32
+    {
+        if self.source.is_some() { self.height } else { self.value.get().unwrap().height() }
+    }
+
+    pub(super) fn full_width(&self) -> f32
+    {
+        if self.source.is_some() { self.width } else { self.value.get().unwrap().full_width() }
+    }
+
+    pub(super) fn line_count(&self) -> usize
+    {
+        if self.source.is_some() { self.line_count } else { self.value.get().unwrap().lines().len() }
+    }
+}
+
+impl std::ops::Deref for ParagraphLayout
+{
+    type Target = parley::Layout<Brush>;
+
+    fn deref(&self) -> &Self::Target
+    {
+        self.value.get_or_init(|| crate::context::GLOBAL_CONTEXT.with(|slot| {
+            let context = slot.get().expect("text layout requires a Slint context");
+            Box::new(self.build(&mut context.font_context().borrow_mut()))
+        }))
+    }
+}
+
+impl std::ops::DerefMut for ParagraphLayout
+{
+    fn deref_mut(&mut self) -> &mut Self::Target
+    {
+        let _ = &**self;
+        self.value.get_mut().unwrap()
+    }
 }

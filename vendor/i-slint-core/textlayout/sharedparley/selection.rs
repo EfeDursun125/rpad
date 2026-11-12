@@ -123,7 +123,7 @@ impl Layout {
             // line box: such a line still draws, so it still needs its spans.
             let paragraph_top = self.y_offset + paragraph.y;
             let paragraph_height = PhysicalLength::new(paragraph.layout.height());
-            let line_pad = paragraph_height / paragraph.layout.lines().len().max(1) as f32;
+            let line_pad = paragraph_height / paragraph.layout.line_count().max(1) as f32;
             if paragraph_top + paragraph_height + line_pad < visible_band.start
                 || paragraph_top - line_pad > visible_band.end
             {

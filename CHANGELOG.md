@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Read files asynchronously in chunks and report load progress.
+- Avoid retaining a duplicate copy of the source file bytes.
+- Keep syntax highlighting enabled for large documents.
+
 ## 0.1.4
 
 - Maintenance and performance refinements.

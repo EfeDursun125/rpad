@@ -157,6 +157,7 @@ export component AppWindow inherits Window {
     in-out property <string> format-label: "UTF-8 · LF";
     in-out property <[LineRow]> document-lines: [];
     in-out property <int> active-lines;
+    private property <bool> show-line-gutter: root.show-lines && root.active-lines <= 50000;
     in-out property <int> line-revision;
     in-out property <string> editor-font: "Noto Sans Mono";
     in-out property <int> editor-font-weight: 400;
@@ -311,7 +312,7 @@ export component AppWindow inherits Window {
             Rectangle {
                 horizontal-stretch: 1; vertical-stretch: 1;
                 clip: true;
-                if root.show-lines: Rectangle {
+                if root.show-line-gutter: Rectangle {
                     x: 0px; y: 0px;
                     width: 54px; height: parent.height;
                     background: Theme.container.with-alpha(0.38);
@@ -344,7 +345,7 @@ export component AppWindow inherits Window {
                     thumb-color: Theme.muted.with-alpha(0.45);
                     animated: root.smooth-caret;
                     y: 0px;
-                    x: root.show-lines ? 54px : 0px;
+                    x: root.show-line-gutter ? 54px : 0px;
                     width: parent.width - self.x;
                     height: parent.height;
                     content-width: root.wrap-lines ? self.visible-width : max(self.visible-width, editor.preferred-width + 48px);
