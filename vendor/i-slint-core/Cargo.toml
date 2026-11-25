@@ -82,6 +82,8 @@ rtti = []
 shared-fontique = ["i-slint-common/shared-fontique"]
 shared-parley = [
     "dep:syntect",
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
     "dep:unicode-width",
     "shared-fontique",
     "dep:parley",
@@ -507,6 +509,14 @@ check-cfg = [
 version = "5.3.0"
 default-features = false
 features = ["default-syntaxes", "default-themes", "regex-fancy", "yaml-load"]
+optional = true
+
+[dependencies.tree-sitter]
+version = "=0.25.10"
+optional = true
+
+[dependencies.tree-sitter-rust]
+version = "=0.24.2"
 optional = true
 
 [dependencies.unicode-width]

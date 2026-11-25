@@ -59,3 +59,7 @@ are cached with line breaking and sorted by visual line/x position. Painting wal
 visible selection spans and binary-searches their markers; it does not rescan text,
 reshape arrows, or traverse tabs outside the viewport on selection frames. Marker
 clipping shares the existing animated selection edges. Unselected tabs remain blank.
+
+### Rust syntax engine
+
+Rust files use the Tree-sitter Rust grammar with incremental tree edits and paragraph-relative color spans. Other languages use Syntect. This shares the existing background worker and immutable span cache; no external language server is started.

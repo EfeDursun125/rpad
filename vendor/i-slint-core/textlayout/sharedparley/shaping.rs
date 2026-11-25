@@ -538,7 +538,7 @@ pub(super) fn shape_paragraphs(
 
 struct RetainedParagraph {
     text: SharedString,
-    colors: Rc<Vec<crate::syntax_highlight::ColorSpan>>,
+    colors: Arc<Vec<crate::syntax_highlight::ColorSpan>>,
     style: Rc<super::memo::Style>,
 }
 
@@ -566,7 +566,7 @@ pub(super) struct TextParagraph {
 pub(super) struct ParagraphLayout
 {
     value: std::cell::OnceCell<Box<parley::Layout<Brush>>>,
-    source: Option<(Rc<LayoutWithoutLineBreaksBuilder>, SharedString, Rc<Vec<crate::syntax_highlight::ColorSpan>>)>,
+    source: Option<(Rc<LayoutWithoutLineBreaksBuilder>, SharedString, Arc<Vec<crate::syntax_highlight::ColorSpan>>)>,
     breaking: Option<(Option<PhysicalLength>, parley::Alignment)>,
     height: f32,
     width: f32,
@@ -580,7 +580,7 @@ impl ParagraphLayout
         Self { value: std::cell::OnceCell::from(Box::new(layout)), source: None, breaking: None, height: 0., width: 0., line_count: 0 }
     }
 
-    fn paged(builder: Rc<LayoutWithoutLineBreaksBuilder>, text: SharedString, colors: Rc<Vec<crate::syntax_highlight::ColorSpan>>) -> Self
+    fn paged(builder: Rc<LayoutWithoutLineBreaksBuilder>, text: SharedString, colors: Arc<Vec<crate::syntax_highlight::ColorSpan>>) -> Self
     {
         Self { value: Default::default(), source: Some((builder, text, colors)), breaking: None, height: 0., width: 0., line_count: 0 }
     }

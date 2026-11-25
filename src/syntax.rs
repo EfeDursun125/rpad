@@ -143,6 +143,51 @@ impl Worker {
 mod tests {
     use i_slint_core::syntax_highlight::SyntaxCache;
     #[test]
+    fn rust_symbols_are_colored_by_context_and_updates_match_fresh_parse() {
+        let source = "#[derive(Clone, Copy, Debug)]\npub struct Entity { index: i32 }\nthread_local! { static ENGINE_TABLE: OnceCell<EngineTable> = const { Cell::new(None) }; }\nfn example(x: Entity) { let text = \"Entity null()\"; null(); }\n// Entity null()";
+        for dark in [false, true] {
+            let mut cache = SyntaxCache::default();
+            let spans = cache.update(&source.into(), "ffi.rs".into(), dark);
+            let color = |line: usize, token: &str| {
+                let offset = source.lines().nth(line).unwrap().find(token).unwrap();
+                spans[line]
+                    .iter()
+                    .find(|span| span.range.contains(&offset))
+                    .unwrap_or_else(|| panic!("uncolored {token}"))
+                    .color
+            };
+            for (line, token) in [
+                (0, "derive"),
+                (0, "Clone"),
+                (0, "Copy"),
+                (0, "Debug"),
+                (1, "Entity"),
+                (1, "index"),
+                (1, "i32"),
+                (2, "thread_local"),
+                (2, "ENGINE_TABLE"),
+                (2, "OnceCell"),
+                (2, "EngineTable"),
+                (3, "example"),
+                (3, "null"),
+            ] {
+                color(line, token);
+            }
+            assert_ne!(color(1, "Entity"), color(1, "index"));
+            assert_ne!(color(2, "thread_local"), color(2, "OnceCell"));
+            assert_eq!(color(4, "Entity"), color(4, "null"));
+            assert_eq!(color(3, "Entity null()"), color(3, "null"));
+            let edited = source
+                .replace("index: i32", "değer: u64")
+                .replace("OnceCell", "Cell");
+            let incremental = cache.update(&edited.as_str().into(), "ffi.rs".into(), dark);
+            let fresh =
+                SyntaxCache::default().update(&edited.as_str().into(), "ffi.rs".into(), dark);
+            assert_eq!(incremental, fresh);
+        }
+    }
+
+    #[test]
     fn lua_calls_and_logical_operators_are_colored() {
         let text = "if IsPlayerBot(id) and not IsPlayerInHeroSelectionControl(id) or Check() then\n-- Hidden() and not or\nlocal s = \"Hidden() and not or\"";
         for dark in [false, true] {

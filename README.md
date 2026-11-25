@@ -52,6 +52,8 @@ The View menu controls word wrap, line numbers and smooth animations. Above 50,0
 
 ## Syntax highlighting
 
+Rust (`.rs`) uses Tree-sitter with incremental parsing and a context-aware palette for types, functions, macros, attributes, constants, fields, variables, comments and literals. This is local syntax analysis, not Rust Analyzer or cross-file semantic resolution. Other languages retain the existing Syntect grammars and theme. If the Rust parser cannot initialize, Syntect remains the fallback.
+
 Known file extensions select syntax colors automatically, including Lua, C/C++, headers,
 Pawn (`.sma`, `.pwn`), SourcePawn (`.sp`), GDScript (`.gd`), Java (`.java`), C# (`.cs`,
 `.csx`), CMake (`CMakeLists.txt`, `.cmake`), Rust, Python, JavaScript, HTML/CSS, JSON, YAML, TOML, shell scripts and Markdown.

@@ -1,5 +1,7 @@
 // RPad: cached, color-only syntax spans. Font metrics and source byte offsets stay unchanged.
 use crate::{Color, SharedString};
+#[path = "rust_syntax.rs"]
+mod rust_syntax;
 use alloc::vec::Vec;
 use std::{ops::Range, rc::Rc, sync::Arc};
 use syntect::{
@@ -46,6 +48,7 @@ pub struct SyntaxCache {
     text: SharedString,
     lines: Vec<Line>,
     output: SyntaxLines,
+    rust: Option<rust_syntax::RustSyntax>,
 }
 
 impl SyntaxCache {
@@ -56,6 +59,9 @@ impl SyntaxCache {
         dark: bool,
     ) -> SyntaxLines {
         if filename.is_empty() {
+            self.rust = None;
+            self.filename = Default::default();
+            self.text = Default::default();
             self.lines.clear();
             self.output = Default::default();
             return self.output.clone();
@@ -78,6 +84,22 @@ impl SyntaxCache {
                 .unwrap_or("")
                 .to_ascii_lowercase()
         };
+        if extension == "rs" {
+            if self.filename != filename {
+                self.rust = None;
+            }
+            let rust = self.rust.get_or_insert_with(rust_syntax::RustSyntax::default);
+            if let Some(spans) = rust.update(text, dark) {
+                self.lines.clear();
+                self.filename = filename;
+                self.dark = dark;
+                self.text = text.clone();
+                self.output = spans;
+                return self.output.clone();
+            }
+        } else {
+            self.rust = None;
+        }
         let first_line = || text.lines().next().unwrap_or("");
         if matches!(extension.as_str(), "txt" | "log" | "text")
             || (filename == "Untitled"
