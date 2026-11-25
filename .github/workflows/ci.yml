@@ -39,3 +39,17 @@ jobs:
           test "$("$RUNNER_TEMP/rpad-install/bin/rpad" --version)" = "RPad 0.1.5"
           test -f "$RUNNER_TEMP/rpad-install/share/applications/rpad.desktop"
           test -f "$RUNNER_TEMP/rpad-install/share/icons/hicolor/scalable/apps/rpad.svg"
+  windows:
+    name: Windows checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Tests (including native NTFS ACL preservation)
+        run: cargo test --locked

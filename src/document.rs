@@ -327,6 +327,13 @@ fn atomic_write(
         fs::OpenOptions::new().write(true).open(path)?;
     }
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(windows)]
+    let acl = if metadata.is_some() {
+        // Apply permissions before writing any document contents to the temporary file.
+        crate::windows_acl::PreservedAcl::prepare(path, temp.path())?
+    } else {
+        None
+    };
     {
         let mut writer = BufWriter::new(temp.as_file_mut());
         write(&mut writer)?;
@@ -361,6 +368,10 @@ fn atomic_write(
     // Recheck file identity as well as contents. A portable rename still cannot
     // provide compare-and-swap semantics for an existing destination.
     verify()?;
+    #[cfg(windows)]
+    if let Some(acl) = acl {
+        acl.verify()?;
+    }
     match (&metadata, destination_metadata(path)?) {
         (Some(before), Some(after)) if same_metadata(before, &after) => {
             temp.persist(path).map_err(|e| e.error)?;

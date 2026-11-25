@@ -13,6 +13,8 @@ mod search_worker;
 mod settings;
 mod syntax;
 mod theme;
+#[cfg(windows)]
+mod windows_acl;
 #[cfg(target_os = "linux")]
 mod xattrs;
 
