@@ -154,11 +154,11 @@ fn replace(ui: &AppWindow, all: bool) {
     let replacement = ui.get_replacement_text();
     if all {
         let count = text.matches(needle.as_str()).count();
-        if count > 0 {
+        if let Some(first) = text.find(needle.as_str()) {
             ui.set_document_text(text.replace(needle.as_str(), replacement.as_str()).into());
-            // Highlight the first replaced region so the change is visible.
-            let end = replacement.len();
-            ui.invoke_select_range(0, end as i32);
+            // The prefix before the first match is unchanged by replacement.
+            let end = first + replacement.len();
+            ui.invoke_select_range(first as i32, end as i32);
             ui.invoke_edited();
         }
         ui.set_search_status(format!("{count} replaced").into());
@@ -1271,7 +1271,7 @@ mod editor_tests {
         replace(&ui, true);
         advance(1);
         assert_eq!(ui.get_document_text(), "aZb");
-        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (0, 1));
+        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (1, 2));
         assert_eq!(ui.get_search_status(), "1 replaced");
 
         // Replace all reports the real match count.

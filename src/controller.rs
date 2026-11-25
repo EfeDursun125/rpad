@@ -205,7 +205,7 @@ impl Controller {
         };
         self.set_busy(true);
         let mut document = self.document.borrow().clone();
-        let text = ui.get_document_text().to_string();
+        let text = ui.get_document_text();
         let handler = self.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -216,7 +216,7 @@ impl Controller {
             };
             let result = path.map(|path| {
                 document
-                    .save(&path, &text)
+                    .save_snapshot(&path, text)
                     .map(|()| document)
                     .map_err(|e| format!("{}\n\n{e}", path.display()))
             });

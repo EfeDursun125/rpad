@@ -3,7 +3,7 @@ use slint::SharedString;
 use std::os::unix::fs::MetadataExt;
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -27,10 +27,18 @@ impl Document {
         } else {
             absolute(path)?
         };
+        // Reject devices, pipes and directories before opening them.
+        if let Ok(metadata) = fs::metadata(&path) {
+            validate_file(&metadata)?;
+        }
         match fs::File::open(&path) {
             Ok(mut file) => {
-                let total = file.metadata()?.len();
-                let mut bytes = Vec::with_capacity(total.try_into().unwrap_or(0));
+                let metadata = file.metadata()?;
+                validate_file(&metadata)?;
+                let total = metadata.len();
+                validate_size(total)?;
+                // Do not trust the reported size enough to allocate it all at once.
+                let mut bytes = Vec::new();
                 let mut chunk = [0; 64 * 1024];
                 let mut loaded = 0_u64;
                 let mut last_reported = 0_u64;
@@ -39,8 +47,10 @@ impl Document {
                     if count == 0 {
                         break;
                     }
-                    bytes.extend_from_slice(&chunk[..count]);
                     loaded += count as u64;
+                    validate_size(loaded)?;
+                    bytes.try_reserve(count).map_err(io::Error::other)?;
+                    bytes.extend_from_slice(&chunk[..count]);
                     if loaded == total || loaded - last_reported >= 8 * 1024 * 1024 {
                         progress(loaded, total);
                         last_reported = loaded;
@@ -106,51 +116,96 @@ impl Document {
     }
 
     pub fn dirty(&self, text: &str) -> bool {
-        self.text.as_str() != text || (self.path.is_some() && self.original_exists.is_none())
+        let same = self.text.as_ptr() == text.as_ptr() && self.text.len() == text.len();
+        (!same && self.text.as_str() != text)
+            || (self.path.is_some() && self.original_exists.is_none())
     }
 
+    #[cfg(test)]
     pub fn save(&mut self, path: &Path, text: &str) -> io::Result<()> {
+        self.save_snapshot(path, text.into())
+    }
+
+    pub fn save_snapshot(&mut self, path: &Path, text: SharedString) -> io::Result<()> {
         let destination = if path.exists() {
             fs::canonicalize(path)?
         } else {
             absolute(path)?
         };
-        if self.path.as_ref() == Some(&destination) {
-            let unchanged = match self.original_exists {
-                Some(true) => matches_file(&destination, self.text.as_str(), self.bom, self.crlf)?,
-                Some(false) => !destination.exists(),
-                None => !destination.exists(),
-            };
-            if !unchanged {
-                return Err(io::Error::other("The file changed on disk. Use Save as to save a separate copy, or reopen the file."));
-            }
-        }
-        let extra_newlines = if self.crlf {
-            text.bytes().filter(|byte| *byte == b'\n').count()
-        } else {
-            0
-        };
-        let mut bytes =
-            Vec::with_capacity(text.len() + extra_newlines + if self.bom { 3 } else { 0 });
-        if self.bom {
-            bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]);
-        }
-        if self.crlf {
-            for (index, part) in text.split('\n').enumerate() {
-                if index > 0 {
-                    bytes.extend_from_slice(b"\r\n");
+        let same_destination = self.path.as_ref() == Some(&destination);
+        let bom = self.bom;
+        let crlf = self.crlf;
+        atomic_write(
+            &destination,
+            |writer| write_document(writer, &text, bom, crlf),
+            || {
+                if same_destination {
+                    let unchanged = match self.original_exists {
+                        Some(true) => matches_file(
+                            &destination,
+                            self.text.as_str(),
+                            self.bom,
+                            self.crlf,
+                        )?,
+                        _ => !destination.exists(),
+                    };
+                    if !unchanged {
+                        return Err(conflict());
+                    }
                 }
-                bytes.extend_from_slice(part.as_bytes());
-            }
-        } else {
-            bytes.extend_from_slice(text.as_bytes());
-        }
-        atomic_write(&destination, &bytes)?;
+                Ok(())
+            },
+        )?;
         self.path = Some(destination);
-        self.text = text.into();
+        self.text = text;
         self.original_exists = Some(true);
         Ok(())
     }
+}
+
+fn validate_size(size: u64) -> io::Result<()> {
+    if size > i32::MAX as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "The file exceeds the editor's signed 32-bit byte-offset limit.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_file(metadata: &fs::Metadata) -> io::Result<()> {
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Only regular text files are supported.",
+        ));
+    }
+    Ok(())
+}
+
+fn conflict() -> io::Error {
+    io::Error::other(
+        "The file changed on disk. Use Save as to save a separate copy, or reopen the file.",
+    )
+}
+
+fn write_document(writer: &mut dyn Write, text: &str, bom: bool, crlf: bool) -> io::Result<()> {
+    if bom {
+        writer.write_all(&[0xef, 0xbb, 0xbf])?;
+    }
+    if crlf {
+        for line in text.split_inclusive('\n') {
+            if let Some(body) = line.strip_suffix('\n') {
+                writer.write_all(body.as_bytes())?;
+                writer.write_all(b"\r\n")?;
+            } else {
+                writer.write_all(line.as_bytes())?;
+            }
+        }
+    } else {
+        writer.write_all(text.as_bytes())?;
+    }
+    Ok(())
 }
 
 fn matches_file(path: &Path, text: &str, bom: bool, crlf: bool) -> io::Result<bool> {
@@ -163,7 +218,11 @@ fn matches_file(path: &Path, text: &str, bom: bool, crlf: bool) -> io::Result<bo
 
     if bom {
         let mut marker = [0; 3];
-        file.read_exact(&mut marker)?;
+        match file.read_exact(&mut marker) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+            Err(error) => return Err(error),
+        }
         if marker != [0xef, 0xbb, 0xbf] {
             return Ok(false);
         }
@@ -191,7 +250,11 @@ fn matches_file(path: &Path, text: &str, bom: bool, crlf: bool) -> io::Result<bo
 
 fn matches_bytes(file: &mut fs::File, actual: &mut [u8], expected: &[u8]) -> io::Result<bool> {
     for part in expected.chunks(actual.len()) {
-        file.read_exact(&mut actual[..part.len()])?;
+        match file.read_exact(&mut actual[..part.len()]) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+            Err(error) => return Err(error),
+        }
         if &actual[..part.len()] != part {
             return Ok(false);
         }
@@ -212,11 +275,47 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
     Ok(fs::canonicalize(parent)?.join(name))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn destination_metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            validate_file(&metadata)?;
+            Ok(Some(metadata))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn same_metadata(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    if (
+        before.dev(),
+        before.ino(),
+        before.ctime(),
+        before.ctime_nsec(),
+        before.nlink(),
+    ) != (
+        after.dev(),
+        after.ino(),
+        after.ctime(),
+        after.ctime_nsec(),
+        after.nlink(),
+    )
+    {
+        return false;
+    }
+    before.len() == after.len() && before.modified().ok() == after.modified().ok()
+}
+
+fn atomic_write(
+    path: &Path,
+    write: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+    verify: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("No parent directory"))?;
-    let metadata = fs::metadata(path).ok();
+    let metadata = destination_metadata(path)?;
     if let Some(_meta) = &metadata {
         #[cfg(unix)]
         if _meta.nlink() > 1 {
@@ -228,8 +327,12 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         fs::OpenOptions::new().write(true).open(path)?;
     }
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    temp.write_all(bytes)?;
-    if let Some(meta) = metadata {
+    {
+        let mut writer = BufWriter::new(temp.as_file_mut());
+        write(&mut writer)?;
+        writer.flush()?;
+    }
+    if let Some(meta) = &metadata {
         let file = temp.as_file();
         // Preserve ownership when an administrator edits another user's file.
         #[cfg(unix)]
@@ -242,7 +345,20 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         file.set_permissions(meta.permissions())?;
     }
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| e.error)?;
+    // Keep verification close to the rename, after the potentially slow write.
+    // Recheck file identity as well as contents. A portable rename still cannot
+    // provide compare-and-swap semantics for an existing destination.
+    verify()?;
+    match (&metadata, destination_metadata(path)?) {
+        (Some(before), Some(after)) if same_metadata(before, &after) => {
+            temp.persist(path).map_err(|e| e.error)?;
+        }
+        (None, None) => {
+            // Unlike a normal rename, this cannot overwrite a newly created file.
+            temp.persist_noclobber(path).map_err(|e| e.error)?;
+        }
+        _ => return Err(conflict()),
+    }
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())
@@ -308,6 +424,41 @@ mod tests {
 
         assert!(doc.save(&path, "mine").is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
+    #[test]
+    fn refuses_destination_created_during_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note");
+        let result = atomic_write(
+            &path,
+            |writer| writer.write_all(b"mine"),
+            || fs::write(&path, b"external"),
+        );
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"external");
+    }
+
+    #[test]
+    fn save_snapshot_reuses_shared_text_and_detects_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note");
+        let mut doc = Document::open(&path).unwrap();
+        let text: SharedString = "first line\nsecond line\n".into();
+        doc.save_snapshot(&path, text.clone()).unwrap();
+        assert_eq!(doc.text.as_ptr(), text.as_ptr());
+        assert!(!doc.dirty(&text));
+        fs::write(&path, b"first").unwrap();
+        assert!(doc.save(&path, "mine").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+    }
+
+    #[test]
+    fn rejects_directories_and_oversized_file_lengths() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(Document::open(dir.path()).is_err());
+        assert!(validate_size(i32::MAX as u64).is_ok());
+        assert!(validate_size(i32::MAX as u64 + 1).is_err());
     }
 
     #[test]

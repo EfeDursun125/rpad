@@ -17,6 +17,13 @@ pub fn difference(old: &str, new: &str) -> Option<EditRange> {
     let limit = old.len().min(new.len());
     let mut start = 0;
 
+    // Large equal regions are much cheaper to compare in large contiguous
+    // blocks than through thousands of small comparisons.
+    while start + 4096 <= limit
+        && old.as_bytes()[start..start + 4096] == new.as_bytes()[start..start + 4096]
+    {
+        start += 4096;
+    }
     while start + 64 <= limit
         && old.as_bytes()[start..start + 64] == new.as_bytes()[start..start + 64]
     {
@@ -38,6 +45,12 @@ pub fn difference(old: &str, new: &str) -> Option<EditRange> {
     let mut suffix = 0;
     let remaining = limit - start;
 
+    while suffix + 4096 <= remaining
+        && old.as_bytes()[old.len() - suffix - 4096..old.len() - suffix]
+            == new.as_bytes()[new.len() - suffix - 4096..new.len() - suffix]
+    {
+        suffix += 4096;
+    }
     while suffix + 64 <= remaining
         && old.as_bytes()[old.len() - suffix - 64..old.len() - suffix]
             == new.as_bytes()[new.len() - suffix - 64..new.len() - suffix]

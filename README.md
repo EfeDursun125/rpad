@@ -81,8 +81,8 @@ When started with sudo on Linux, RPad reads the invoking user's KDE theme and us
 
 ## File behavior
 
-- Supports UTF-8, optional UTF-8 BOM and LF/CRLF line endings. Mixed line endings are preserved. Binary files and other encodings produce an error.
-- Saving uses a temporary file in the destination directory, `fsync` and atomic replacement. On Linux, existing ownership and Unix permission bits are preserved; symbolic links are resolved to their target.
+- Supports regular UTF-8 files, optional UTF-8 BOM and LF/CRLF line endings. Files beyond the editor's signed 32-bit byte-offset limit are rejected; available memory may impose a lower limit. Mixed line endings are preserved. Binary files and other encodings produce an error.
+- Saving streams the current shared text snapshot to a temporary file in the destination directory, with `fsync` and atomic replacement. New files use a no-clobber commit. Existing files are checked immediately before replacement; a small race with concurrent writers cannot be eliminated portably. On Linux, existing ownership and Unix permission bits are preserved; symbolic links are resolved to their target.
 - If a file changes externally or is deleted after opening/saving, RPad refuses to overwrite it. Use Save as or reopen the file.
 - Files with hard links require Save as to avoid breaking links. ACLs and extended attributes are not copied in this version.
 - Write errors leave the document open. Undo history resets when switching documents and is limited to 200 operations / 16 MiB of retained text, with a single large operation retained.
