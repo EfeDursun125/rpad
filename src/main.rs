@@ -237,7 +237,7 @@ fn bind_virtual_gutter(ui: &AppWindow) {
                     rows = with_text_input_layout(
                         adapter.renderer(),
                         input,
-                        &item,
+                        item,
                         LogicalSize::new(width, height),
                         |layout| {
                             layout
