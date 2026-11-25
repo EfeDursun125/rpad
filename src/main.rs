@@ -173,9 +173,7 @@ fn replace(ui: &AppWindow, all: bool) {
         let lo = a.min(b);
         let hi = a.max(b);
         if text.get(lo..hi) == Some(needle.as_str()) {
-            let mut changed = String::from(text.as_str());
-            changed.replace_range(lo..hi, replacement.as_str());
-            ui.set_document_text(changed.into());
+            ui.set_document_text(text.replaced_range(lo..hi, replacement.as_str()));
             // Select the just-replaced region so it is highlighted, instead of
             // collapsing to a caret and jumping away via find.
             let end = lo + replacement.len();
@@ -383,12 +381,11 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let weak = ui.as_weak();
     ui.on_insert_at_caret(move |inserted| {
         if let Some(ui) = weak.upgrade() {
-            let mut text = ui.get_document_text().to_string();
+            let text = ui.get_document_text();
             let selection = selection(&ui);
             let start = selection.anchor.min(selection.cursor).max(0) as usize;
             let end = selection.anchor.max(selection.cursor).max(0) as usize;
-            text.replace_range(start..end, &inserted);
-            ui.set_document_text(text.into());
+            ui.set_document_text(text.replaced_range(start..end, &inserted));
             let cursor = (start + inserted.len()) as i32;
             ui.invoke_select_range(cursor, cursor);
             ui.invoke_edited();

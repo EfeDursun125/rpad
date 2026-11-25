@@ -30,6 +30,10 @@ RPad uses a negative TextInput cursor width to disable edit fades as well as the
 
 Selection highlights and selected-glyph clipping share interpolated per-visible-span rectangles (28 ms exponential time constant). Logical selection stays immediate. Negative cursor width disables interpolation; document replacement clears retained geometry.
 
+## Piece-table editing
+
+Native multiline edits at 64 KiB and above maintain immutable source chunks and a bounded piece table. The table reuses untouched byte ranges and compacts to the current snapshot after 256 pieces/source chunks or 16 MiB of retained unused bytes. A bulk-copy SharedString constructor materializes the contiguous snapshot required by existing Slint layout and IME APIs in one allocation. Small edits and application undo/redo also use the single-allocation splice. Full-document snapshots remain necessary for rendering and the existing document model.
+
 ## Frame pacing and WGPU presentation
 
 `i-slint-backend-winit` and `i-slint-renderer-femtovg` are vendored from the Slint 1.18.1 crates.io packages. Original copyright notices and LICENSES are retained. RPad enables FemtoVG/WGPU by default; the OpenGL renderer remains selectable with `SLINT_BACKEND=winit-femtovg`.

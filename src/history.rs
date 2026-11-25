@@ -105,10 +105,10 @@ impl History {
             self.undo_bytes -= change.removed.len() + change.inserted.len();
             change
         };
-        let mut text = self.text.to_string();
+        let text;
 
         if redo {
-            text.replace_range(
+            text = self.text.replaced_range(
                 change.start..change.start + change.removed.len(),
                 &change.inserted,
             );
@@ -116,14 +116,14 @@ impl History {
             self.undo_bytes += change.removed.len() + change.inserted.len();
             self.undo.push_back(change);
         } else {
-            text.replace_range(
+            text = self.text.replaced_range(
                 change.start..change.start + change.inserted.len(),
                 &change.removed,
             );
             self.selection = change.before;
             self.redo.push(change);
         }
-        self.text = text.into();
+        self.text = text;
         self.last_edit = Instant::now() - Duration::from_secs(1);
         Some((self.text.clone(), self.selection))
     }

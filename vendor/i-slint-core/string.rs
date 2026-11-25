@@ -88,6 +88,27 @@ impl SharedString {
         );
     }
 
+    /// Create a new shared string by replacing a UTF-8 byte range.
+    ///
+    /// Panics for an invalid range or non-character boundary, like string slicing.
+    pub fn replaced_range(&self, range: core::ops::Range<usize>, replacement: &str) -> Self {
+        assert!(range.start <= range.end);
+        let prefix = &self[..range.start];
+        let suffix = &self[range.end..];
+        Self::from_fragments(
+            [prefix, replacement, suffix],
+            prefix.len() + replacement.len() + suffix.len(),
+        )
+    }
+
+    pub(crate) fn from_fragments<'a>(
+        fragments: impl IntoIterator<Item = &'a str>,
+        length: usize,
+    ) -> Self {
+        let bytes = fragments.into_iter().map(str::as_bytes).chain(core::iter::once(&[0u8][..]));
+        Self { inner: SharedVector::from_byte_slices(bytes, length + 1) }
+    }
+
     /// Append a string to this string
     ///
     /// ```

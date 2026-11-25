@@ -164,6 +164,34 @@ impl<T> SharedVector<T> {
     }
 }
 
+impl SharedVector<u8> {
+    // Build an immutable byte buffer in a single allocation, copying whole slices.
+    // The caller supplies the exact final size; no uninitialized bytes become visible.
+    pub(crate) fn from_byte_slices<'a>(
+        slices: impl IntoIterator<Item = &'a [u8]>,
+        len: usize,
+    ) -> Self {
+        let result = Self::with_capacity(len);
+        let mut offset = 0;
+        for slice in slices {
+            assert!(slice.len() <= len - offset);
+            if !slice.is_empty() {
+                // SAFETY: result owns its allocation exclusively, and the checked
+                // range is inside its capacity. Input slices cannot alias it.
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        slice.as_ptr(), data_ptr(result.inner).add(offset), slice.len(),
+                    );
+                    offset += slice.len();
+                    (*result.inner.as_ptr()).header.size = offset;
+                }
+            }
+        }
+        assert_eq!(offset, len);
+        result
+    }
+}
+
 impl<T: Clone + PartialEq> SharedVector<T> {
     /// Replaces `from` by `to` in `self` `count` times
     /// `count` - number of times to do the replacements

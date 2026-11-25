@@ -39,6 +39,9 @@ use euclid::num::Ceil;
 use i_slint_core_macros::*;
 use unicode_segmentation::UnicodeSegmentation;
 
+#[path = "text_piece_table.rs"]
+mod text_piece_table;
+
 /// The implementation of the `Text` element
 #[repr(C)]
 #[derive(FieldOffsets, Default, SlintElement)]
@@ -778,6 +781,7 @@ pub struct TextInput {
         bool,
         crate::syntax_highlight::SyntaxLines,
     )>>,
+    piece_table: core::cell::RefCell<text_piece_table::PieceTable>,
     pub text: Property<SharedString>,
     pub font_family: Property<SharedString>,
     pub font_size: Property<LogicalLength>,
@@ -1153,11 +1157,9 @@ impl Item for TextInput {
 
                 self.delete_selection(window_adapter, self_rc, TextChangeNotify::SkipCallbacks);
 
-                let mut text: String = self.text().into();
-
                 // FIXME: respect grapheme boundaries
                 let insert_pos = self.selection_anchor_and_cursor().1;
-                text.insert_str(insert_pos, &event.key_event.text);
+                let text = self.splice_text(insert_pos..insert_pos, &event.key_event.text);
 
                 self.add_undo_item(UndoItem {
                     pos: insert_pos,
@@ -1167,7 +1169,7 @@ impl Item for TextInput {
                     kind: UndoItemKind::TextInsert,
                 });
 
-                self.as_ref().set_text_internal(text.into());
+                self.as_ref().set_text_internal(text);
                 let new_cursor_pos = (insert_pos + event.key_event.text.len()) as i32;
                 self.as_ref().anchor_position_byte_offset.set(new_cursor_pos);
                 self.set_cursor_position(
@@ -1281,10 +1283,9 @@ impl Item for TextInput {
                     {
                         let preedit_text = self.preedit_text();
                         if !preedit_text.is_empty() {
-                            let mut text = String::from(self.text());
+                            let text = self.text();
                             let cursor_position = self.cursor_position(&text);
-                            text.insert_str(cursor_position, &preedit_text);
-                            self.set_text_internal(text.into());
+                            self.set_text_internal(self.splice_text(cursor_position..cursor_position, &preedit_text));
                             let new_pos = (cursor_position + preedit_text.len()) as i32;
                             self.anchor_position_byte_offset.set(new_pos);
                             self.set_cursor_position(
@@ -1717,6 +1718,15 @@ impl TextInput {
 
     /// Set `text` from an internal edit, keeping the `internal_text` mirror in sync so the
     /// change handler doesn't mistake this edit for an external assignment.
+    fn splice_text(self: Pin<&Self>, range: core::ops::Range<usize>, replacement: &str) -> SharedString {
+        let text = self.text();
+        if self.single_line() || self.is_password() || text.len() < 64 * 1024 {
+            self.piece_table.borrow_mut().clear();
+            return text.replaced_range(range, replacement);
+        }
+        self.piece_table.borrow_mut().replace(&text, range, replacement)
+    }
+
     fn set_text_internal(self: Pin<&Self>, text: SharedString) {
         if !self.single_line() && self.text_cursor_width().get() == 0. && self.has_focus() && !self.is_password() {
             let (anchor, cursor) = self.selection_anchor_and_cursor();
@@ -1733,7 +1743,9 @@ impl TextInput {
     /// stacks, whose positions refer to the now-replaced text (issue #9024).
     fn align_to_text(self: Pin<&Self>, new_text: &SharedString, self_rc: &ItemRc) {
         let previous_text = self.internal_text.replace(new_text.clone());
-        if previous_text == *new_text {
+        if (previous_text.len() == new_text.len()
+            && previous_text.as_str().as_ptr() == new_text.as_str().as_ptr())
+            || previous_text == *new_text {
             // Produced by an internal edit: `set_text_internal` already kept the mirror in sync,
             // so the offsets and undo stack are consistent with `new_text`. Nothing to realign.
             return;
@@ -1741,6 +1753,7 @@ impl TextInput {
 
         // Programmatic replacements (including switching documents/undo) must not
         // leave old-document glyphs on screen or inherit unrelated insertion ranges.
+        self.piece_table.borrow_mut().clear();
         self.edit_fades.borrow_mut().clear();
         #[cfg(feature = "shared-parley")]
         { *self.selection_motion.borrow_mut() = Default::default(); }
@@ -1859,7 +1872,7 @@ impl TextInput {
         self_rc: &ItemRc,
         trigger_callbacks: TextChangeNotify,
     ) {
-        let text: String = self.text().into();
+        let text = self.text();
         if text.is_empty() {
             return;
         }
@@ -1876,8 +1889,7 @@ impl TextInput {
             (self.cursor_position(&text), self.anchor_position(&text))
         };
 
-        let text = [text.split_at(anchor).0, text.split_at(cursor).1].concat();
-        self.set_text_internal(text.into());
+        self.set_text_internal(self.splice_text(anchor..cursor, ""));
         self.anchor_position_byte_offset.set(anchor as i32);
 
         self.add_undo_item(UndoItem {
@@ -2006,15 +2018,13 @@ impl TextInput {
         };
 
         self.delete_selection(window_adapter, self_rc, TextChangeNotify::SkipCallbacks);
-        let mut text: String = self.text().into();
         let cursor_pos = self.selection_anchor_and_cursor().1;
-        let mut inserted_text: SharedString = text_to_insert.into();
-        if text_to_insert.contains('\n') && self.single_line() {
-            inserted_text = text_to_insert.replace('\n', " ").into();
-            text.insert_str(cursor_pos, &inserted_text);
+        let inserted_text: SharedString = if text_to_insert.contains('\n') && self.single_line() {
+            text_to_insert.replace('\n', " ").into()
         } else {
-            text.insert_str(cursor_pos, text_to_insert);
-        }
+            text_to_insert.into()
+        };
+        let text = self.splice_text(cursor_pos..cursor_pos, &inserted_text);
 
         self.add_undo_item(UndoItem {
             pos: cursor_pos,
@@ -2025,7 +2035,7 @@ impl TextInput {
         });
 
         let cursor_pos = cursor_pos + text_to_insert.len();
-        self.set_text_internal(text.into());
+        self.set_text_internal(text);
         self.anchor_position_byte_offset.set(cursor_pos as i32);
         self.set_cursor_position(
             cursor_pos as i32,
@@ -2387,10 +2397,7 @@ impl TextInput {
 
         match last.kind {
             UndoItemKind::TextInsert => {
-                let text: String = self.text().into();
-                let text = [text.split_at(last.pos).0, text.split_at(last.pos + last.text.len()).1]
-                    .concat();
-                self.set_text_internal(text.into());
+                self.set_text_internal(self.splice_text(last.pos..last.pos + last.text.len(), ""));
 
                 self.anchor_position_byte_offset.set(last.anchor as i32);
                 self.set_cursor_position(
@@ -2402,9 +2409,7 @@ impl TextInput {
                 );
             }
             UndoItemKind::TextRemove => {
-                let mut text: String = self.text().into();
-                text.insert_str(last.pos, &last.text);
-                self.set_text_internal(text.into());
+                self.set_text_internal(self.splice_text(last.pos..last.pos, &last.text));
 
                 self.anchor_position_byte_offset.set(last.anchor as i32);
                 self.set_cursor_position(
@@ -2432,9 +2437,7 @@ impl TextInput {
 
         match last.kind {
             UndoItemKind::TextInsert => {
-                let mut text: String = self.text().into();
-                text.insert_str(last.pos, &last.text);
-                self.set_text_internal(text.into());
+                self.set_text_internal(self.splice_text(last.pos..last.pos, &last.text));
 
                 self.anchor_position_byte_offset.set(last.anchor as i32);
                 self.set_cursor_position(
@@ -2446,10 +2449,7 @@ impl TextInput {
                 );
             }
             UndoItemKind::TextRemove => {
-                let text: String = self.text().into();
-                let text = [text.split_at(last.pos).0, text.split_at(last.pos + last.text.len()).1]
-                    .concat();
-                self.set_text_internal(text.into());
+                self.set_text_internal(self.splice_text(last.pos..last.pos + last.text.len(), ""));
 
                 self.anchor_position_byte_offset.set(last.anchor as i32);
                 self.set_cursor_position(
