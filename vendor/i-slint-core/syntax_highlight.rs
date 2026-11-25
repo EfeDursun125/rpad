@@ -5,7 +5,7 @@ mod rust_syntax;
 use alloc::vec::Vec;
 use std::{ops::Range, rc::Rc, sync::Arc};
 use syntect::{
-    highlighting::{HighlightIterator, HighlightState, Highlighter, ThemeSet},
+    highlighting::{HighlightIterator, HighlightState, Highlighter, StyleModifier, Theme, ThemeItem, ThemeSet},
     parsing::{ParseState, ScopeStack, SyntaxSet},
 };
 
@@ -34,7 +34,95 @@ std::thread_local! {
         }
         builder.build()
     };
-    static THEMES: ThemeSet = ThemeSet::load_defaults();
+    static THEMES: [Theme; 2] = [make_theme(false), make_theme(true)];
+}
+
+// A shared, scope-based palette covers all Syntect grammars, not just Rust.
+fn make_theme(dark: bool) -> Theme {
+    use rust_syntax::Kind;
+    let defaults = ThemeSet::load_defaults();
+    let mut theme = defaults.themes[if dark { "base16-ocean.dark" } else { "InspiredGitHub" }].clone();
+    theme.scopes.clear();
+    for (scope, kind) in [
+        ("comment, punctuation.definition.comment", Kind::Comment),
+        ("string, punctuation.definition.string", Kind::String),
+        ("constant.character.escape, constant.other.placeholder", Kind::Number),
+        ("constant.numeric, constant.language", Kind::Number),
+        ("constant.other, variable.other.constant, entity.name.constant", Kind::Constant),
+        ("keyword, storage, storage.modifier", Kind::Keyword),
+        ("keyword.operator", Kind::Operator),
+        ("storage.type, support.type, support.class", Kind::Builtin),
+        ("entity.name.type, entity.name.class, entity.name.struct, entity.name.enum, entity.name.trait, entity.name.namespace", Kind::Type),
+        ("entity.name.function, support.function, variable.function", Kind::Function),
+        ("entity.name.function.macro, support.function.macro, meta.preprocessor, keyword.control.directive", Kind::Macro),
+        ("entity.name.tag", Kind::Type),
+        ("entity.other.attribute-name, variable.annotation", Kind::Attribute),
+        ("variable, variable.parameter, variable.other", Kind::Variable),
+        ("variable.other.member, variable.other.property, entity.name.field, support.variable.property", Kind::Field),
+        ("support.constant, support.variable", Kind::Builtin),
+        ("markup.heading, markup.bold, markup.italic", Kind::Keyword),
+        ("markup.raw, markup.inline.raw, markup.fenced_code", Kind::String),
+        ("markup.underline.link, string.other.link", Kind::Function),
+        ("markup.inserted", Kind::String),
+        ("markup.deleted, invalid", Kind::Field),
+    ] {
+        let (r, g, b) = kind.rgb(dark);
+        theme.scopes.push(ThemeItem {
+            scope: scope.parse().expect("embedded scope selector"),
+            style: StyleModifier {
+                foreground: Some(syntect::highlighting::Color { r, g, b, a: 255 }),
+                background: None,
+                font_style: None,
+            },
+        });
+    }
+    theme
+}
+
+fn enrich(spans: &mut Vec<ColorSpan>, line: &str, range: Range<usize>, dark: bool) {
+    use rust_syntax::Kind;
+    let part = &line[range.clone()];
+    let mut start = None;
+    let mut append = |lo: usize, hi: usize| {
+        let word = &part[lo..hi];
+        // Do not treat number fragments or pieces of a longer grammar token as names.
+        if !word.chars().next().is_some_and(|ch| ch == '_' || ch.is_alphabetic()) {
+            return;
+        }
+        let from = range.start + lo;
+        let to = range.start + hi;
+        let is_ident = |ch: char| ch == '_' || ch.is_alphanumeric();
+        if line[..from].chars().next_back().is_some_and(is_ident)
+            || line[to..].chars().next().is_some_and(is_ident) {
+            return;
+        }
+        let following = line[to..].trim_start();
+        let previous = line[..from].trim_end();
+        let kind = if following.starts_with('(') {
+            Kind::Function
+        } else if word.len() > 1 && word.chars().any(char::is_uppercase)
+            && !word.chars().any(char::is_lowercase) {
+            Kind::Constant
+        } else if word.starts_with(char::is_uppercase) {
+            Kind::Type
+        } else if previous.ends_with('.') || previous.ends_with("->") {
+            Kind::Field
+        } else {
+            Kind::Variable
+        };
+        let (r, g, b) = kind.rgb(dark);
+        spans.push(ColorSpan { range: from..to, color: Color::from_argb_u8(255, r, g, b) });
+    };
+    for (index, ch) in part.char_indices() {
+        if ch == '_' || ch.is_alphanumeric() {
+            start.get_or_insert(index);
+        } else if let Some(lo) = start.take() {
+            append(lo, index);
+        }
+    }
+    if let Some(lo) = start {
+        append(lo, part.len());
+    }
 }
 
 pub type SyntaxLines = Arc<Vec<Arc<Vec<ColorSpan>>>>;
@@ -48,7 +136,7 @@ pub struct SyntaxCache {
     text: SharedString,
     lines: Vec<Line>,
     output: SyntaxLines,
-    rust: Option<rust_syntax::RustSyntax>,
+    tree: Option<rust_syntax::TreeSyntax>,
 }
 
 impl SyntaxCache {
@@ -59,7 +147,7 @@ impl SyntaxCache {
         dark: bool,
     ) -> SyntaxLines {
         if filename.is_empty() {
-            self.rust = None;
+            self.tree = None;
             self.filename = Default::default();
             self.text = Default::default();
             self.lines.clear();
@@ -84,12 +172,12 @@ impl SyntaxCache {
                 .unwrap_or("")
                 .to_ascii_lowercase()
         };
-        if extension == "rs" {
+        if let Some(language) = rust_syntax::language(&extension) {
             if self.filename != filename {
-                self.rust = None;
+                self.tree = None;
             }
-            let rust = self.rust.get_or_insert_with(rust_syntax::RustSyntax::default);
-            if let Some(spans) = rust.update(text, dark) {
+            let parser = self.tree.get_or_insert_with(rust_syntax::TreeSyntax::default);
+            if let Some(spans) = parser.update(text, dark, language) {
                 self.lines.clear();
                 self.filename = filename;
                 self.dark = dark;
@@ -98,7 +186,7 @@ impl SyntaxCache {
                 return self.output.clone();
             }
         } else {
-            self.rust = None;
+            self.tree = None;
         }
         let first_line = || text.lines().next().unwrap_or("");
         if matches!(extension.as_str(), "txt" | "log" | "text")
@@ -143,11 +231,7 @@ impl SyntaxCache {
                     self.output = Default::default();
                     return self.output.clone();
                 };
-                let theme = &themes.themes[if dark {
-                    "base16-ocean.dark"
-                } else {
-                    "InspiredGitHub"
-                }];
+                let theme = &themes[usize::from(dark)];
                 let highlighter = Highlighter::new(theme);
                 let default_color =
                     theme
@@ -159,6 +243,12 @@ impl SyntaxCache {
                             b: 255,
                             a: 255,
                         });
+                let enrich_identifiers = matches!(extension,
+                    "rs" | "c" | "cpp" | "cs" | "go" | "java" | "js" | "py"
+                    | "lua" | "rb" | "php" | "sh" | "bash" | "zsh" | "sma" | "sp" | "pwn"
+                    | "gd" | "glsl" | "vert" | "frag" | "wgsl" | "gdshader" | "cmake"
+                    | "swift" | "kt" | "kts" | "scala" | "pl" | "r" | "sql" | "zig"
+                    | "nim" | "dart" | "haskell" | "hs" | "el" | "clj" | "ex" | "exs");
                 let initial_parse = ParseState::new(syntax);
                 let initial_highlight = HighlightState::new(&highlighter, ScopeStack::new());
                 let input: Vec<_> = text
@@ -227,6 +317,10 @@ impl SyntaxCache {
                                             color.a, color.r, color.g, color.b,
                                         ),
                                     });
+                                } else if enrich_identifiers && offset != end {
+                                    // Only fill unstyled grammar gaps. The parser's comment and
+                                    // string scopes already have explicit colors.
+                                    enrich(&mut spans, text, offset..end, dark);
                                 }
                                 offset = end;
                             }

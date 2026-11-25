@@ -60,6 +60,6 @@ visible selection spans and binary-searches their markers; it does not rescan te
 reshape arrows, or traverse tabs outside the viewport on selection frames. Marker
 clipping shares the existing animated selection edges. Unselected tabs remain blank.
 
-### Rust syntax engine
+### Shared syntax engine
 
-Rust files use the Tree-sitter Rust grammar with incremental tree edits and paragraph-relative color spans. Other languages use Syntect. This shares the existing background worker and immutable span cache; no external language server is started.
+Rust, C/C++, C#, Go, Java, JavaScript, TypeScript and Python use their respective Tree-sitter grammars with incremental tree edits and paragraph-relative color spans. Other languages use the shared palette and Syntect grammar with conservative identifier enrichment for recognized code formats. This shares the existing background worker and immutable span cache; no external language server is started.

@@ -84,6 +84,14 @@ shared-parley = [
     "dep:syntect",
     "dep:tree-sitter",
     "dep:tree-sitter-rust",
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-c-sharp",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-java",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-typescript",
     "dep:unicode-width",
     "shared-fontique",
     "dep:parley",
@@ -517,6 +525,38 @@ optional = true
 
 [dependencies.tree-sitter-rust]
 version = "=0.24.2"
+optional = true
+
+[dependencies.tree-sitter-c]
+version = "=0.24.2"
+optional = true
+
+[dependencies.tree-sitter-c-sharp]
+version = "=0.23.5"
+optional = true
+
+[dependencies.tree-sitter-cpp]
+version = "=0.23.4"
+optional = true
+
+[dependencies.tree-sitter-go]
+version = "=0.25.0"
+optional = true
+
+[dependencies.tree-sitter-java]
+version = "=0.23.5"
+optional = true
+
+[dependencies.tree-sitter-javascript]
+version = "=0.25.0"
+optional = true
+
+[dependencies.tree-sitter-python]
+version = "=0.25.0"
+optional = true
+
+[dependencies.tree-sitter-typescript]
+version = "=0.23.2"
 optional = true
 
 [dependencies.unicode-width]

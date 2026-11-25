@@ -143,6 +143,41 @@ impl Worker {
 mod tests {
     use i_slint_core::syntax_highlight::SyntaxCache;
     #[test]
+    fn common_language_symbols_receive_context_colors() {
+        for (file, source, names) in [
+            ("sample.cpp", "struct Widget { int count; }; void run() { Widget item; item.count = 42; }", ["Widget", "count", "run"]),
+            ("sample.c", "struct Widget { int count; }; void run(void) { struct Widget item; }", ["Widget", "count", "run"]),
+            ("sample.py", "class Widget:\n    def run(self, count):\n        return count", ["Widget", "run", "count"]),
+            ("sample.js", "class Widget { run(count) { return count; } }", ["Widget", "run", "count"]),
+            ("sample.ts", "class Widget { run(count: number): number { return count; } }", ["Widget", "run", "count"]),
+            ("sample.cs", "class Widget { int count; void run() {} }", ["Widget", "run", "count"]),
+            ("sample.java", "class Widget { int count; void run() {} }", ["Widget", "run", "count"]),
+            ("sample.go", "package demo\ntype Widget struct { count int }\nfunc run() {}", ["Widget", "run", "count"]),
+            ("sample.lua", "local Widget = {}; function run(count) return count end", ["Widget", "run", "count"]),
+        ] {
+            for dark in [false, true] {
+                let mut cache = SyntaxCache::default();
+                let spans = cache.update(&source.into(), file.into(), dark);
+                for name in names {
+                    assert!(
+                        source.lines().enumerate().any(|(row, line)| {
+                            line.find(name).is_some_and(|offset| {
+                                spans[row].iter().any(|span| span.range.contains(&offset))
+                            })
+                        }),
+                        "{file}: {name}"
+                    );
+                }
+                let changed = source.replace("count", "total");
+                let incremental = cache.update(&changed.as_str().into(), file.into(), dark);
+                let fresh =
+                    SyntaxCache::default().update(&changed.as_str().into(), file.into(), dark);
+                assert_eq!(incremental, fresh, "{file}");
+            }
+        }
+    }
+
+    #[test]
     fn rust_symbols_are_colored_by_context_and_updates_match_fresh_parse() {
         let source = "#[derive(Clone, Copy, Debug)]\npub struct Entity { index: i32 }\nthread_local! { static ENGINE_TABLE: OnceCell<EngineTable> = const { Cell::new(None) }; }\nfn example(x: Entity) { let text = \"Entity null()\"; null(); }\n// Entity null()";
         for dark in [false, true] {

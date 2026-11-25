@@ -1,11 +1,11 @@
-//! Native Rust syntax tree with context-aware colors and incremental reparsing.
+//! Native syntax trees with context-aware colors and incremental reparsing.
 use super::{ColorSpan, SyntaxLines};
 use crate::{Color, SharedString};
 use std::sync::Arc;
 use tree_sitter::{InputEdit, Node, Parser, Point, Tree};
 
 #[derive(Default)]
-pub(super) struct RustSyntax {
+pub(super) struct TreeSyntax {
     parser: Option<Parser>,
     tree: Option<Tree>,
     text: SharedString,
@@ -53,7 +53,7 @@ fn edit(old: &str, new: &str) -> InputEdit {
 }
 
 #[derive(Clone, Copy)]
-enum Kind {
+pub(super) enum Kind {
     Keyword,
     Type,
     Builtin,
@@ -71,8 +71,8 @@ enum Kind {
 }
 
 impl Kind {
-    fn color(self, dark: bool) -> Color {
-        let (r, g, b) = match (self, dark) {
+    pub(super) fn rgb(self, dark: bool) -> (u8, u8, u8) {
+        match (self, dark) {
             (Self::Keyword, true) => (208, 145, 242),
             (Self::Type, true) => (86, 214, 206),
             (Self::Builtin, true) => (91, 181, 251),
@@ -101,7 +101,11 @@ impl Kind {
             (Self::Comment, false) => (101, 104, 94),
             (Self::Lifetime, false) => (124, 51, 136),
             (Self::Operator, false) => (53, 91, 111),
-        };
+        }
+    }
+
+    fn color(self, dark: bool) -> Color {
+        let (r, g, b) = self.rgb(dark);
         Color::from_argb_u8(255, r, g, b)
     }
 }
@@ -110,22 +114,35 @@ fn identifier(node: Node<'_>, text: &str) -> Kind {
     let value = &text[node.byte_range()];
     let parent = node.parent();
     let context = parent.map_or("", |parent| parent.kind());
-    if context == "attribute" {
+    let following = text[node.end_byte()..].trim_start();
+    if matches!(context, "attribute" | "annotation" | "marker_annotation" | "decorator") {
         return Kind::Attribute;
     }
-    if context == "macro_invocation"
-        || text[node.end_byte()..].trim_start().starts_with('!')
+    if matches!(context, "macro_invocation" | "preproc_def" | "preproc_function_def")
+        || (following.starts_with('!') && !following.starts_with("!="))
     {
         return Kind::Macro;
     }
-    if matches!(context, "function_item" | "function_signature_item")
-        && parent.and_then(|parent| parent.child_by_field_name("name")) == Some(node)
+    if matches!(context, "function_item" | "function_signature_item" | "function_definition"
+        | "function_declaration" | "method_declaration" | "method_definition"
+        | "constructor_declaration" | "function_declarator")
+        && parent.is_some_and(|parent| {
+            parent.child_by_field_name("name") == Some(node)
+                || parent.child_by_field_name("declarator") == Some(node)
+        })
     {
         return Kind::Function;
     }
+    if matches!(context, "class_declaration" | "class_definition" | "interface_declaration"
+        | "struct_declaration" | "enum_declaration" | "type_alias_declaration"
+        | "type_spec" | "record_declaration")
+        && parent.and_then(|parent| parent.child_by_field_name("name")) == Some(node)
+    {
+        return Kind::Type;
+    }
     // The final component of a call path has a following opening paren. This
     // also covers identifiers inside unexpanded macro token trees.
-    if text[node.end_byte()..].trim_start().starts_with('(')
+    if following.starts_with('(')
         && !value.starts_with(char::is_uppercase)
     {
         return Kind::Function;
@@ -143,28 +160,51 @@ fn identifier(node: Node<'_>, text: &str) -> Kind {
 }
 
 fn classify(node: Node<'_>, text: &str) -> Option<Kind> {
+    if !node.is_named() && matches!(node.kind(),
+        "int" | "float" | "double" | "char" | "bool" | "byte" | "short" | "long"
+        | "void" | "string" | "number" | "boolean" | "object")
+    {
+        return Some(Kind::Builtin);
+    }
     let kind = match node.kind() {
-        "line_comment" | "block_comment" => Kind::Comment,
+        "line_comment" | "block_comment" | "comment" | "documentation_comment" => Kind::Comment,
         "string_literal" | "raw_string_literal" | "char_literal" | "byte_string_literal"
-        | "raw_byte_string_literal" => Kind::String,
-        "integer_literal" | "float_literal" | "boolean_literal" => Kind::Number,
-        "primitive_type" => Kind::Builtin,
-        "type_identifier" => Kind::Type,
-        "field_identifier" => {
+        | "raw_byte_string_literal" | "string" | "character_literal" | "raw_string"
+        | "template_string" | "verbatim_string_literal" | "interpreted_string_literal"
+        | "rune_literal" | "raw_string_literal_content" | "string_content" => Kind::String,
+        "integer_literal" | "float_literal" | "boolean_literal" | "number_literal"
+        | "number" | "integer" | "float" | "decimal_integer_literal" | "hex_integer_literal"
+        | "binary_integer_literal" | "octal_integer_literal" | "decimal_floating_point_literal"
+        | "hex_floating_point_literal" | "real_literal" | "int_literal" | "imaginary_literal"
+        | "null" | "null_literal" | "none" | "nil" | "undefined" => Kind::Number,
+        "primitive_type" | "predefined_type" | "integral_type" | "floating_point_type"
+        | "void_type" | "boolean_type" => Kind::Builtin,
+        "type_identifier" | "namespace_identifier" | "package_identifier" => Kind::Type,
+        "field_identifier" | "property_identifier" | "private_property_identifier" => {
             if text[node.end_byte()..].trim_start().starts_with('(') {
                 Kind::Function
             } else {
                 Kind::Field
             }
         }
-        "identifier" | "metavariable" => identifier(node, text),
+        "identifier" | "metavariable" | "shorthand_property_identifier"
+        | "shorthand_property_identifier_pattern" => identifier(node, text),
         "lifetime" | "label" => Kind::Lifetime,
-        "self" | "Self" | "super" | "crate" => Kind::Builtin,
+        "self" | "Self" | "super" | "crate" | "this" | "base" => Kind::Builtin,
         "as" | "async" | "await" | "break" | "const" | "continue" | "dyn" | "else"
         | "enum" | "extern" | "fn" | "for" | "if" | "impl" | "in" | "let" | "loop"
         | "match" | "mod" | "move" | "mut" | "pub" | "ref" | "return" | "static"
         | "struct" | "trait" | "type" | "union" | "unsafe" | "use" | "where" | "while"
-        | "yield" | "gen" | "macro_rules!" => Kind::Keyword,
+        | "yield" | "gen" | "macro_rules!" | "class" | "interface" | "public" | "private"
+        | "protected" | "internal" | "final" | "abstract" | "override" | "virtual" | "new"
+        | "import" | "export" | "from" | "def" | "function" | "func" | "var" | "package"
+        | "namespace" | "using" | "include" | "#include" | "#define" | "typedef"
+        | "switch" | "case" | "default" | "try" | "catch" | "finally" | "throw" | "throws"
+        | "raise" | "except" | "with" | "pass" | "assert" | "del" | "lambda" | "global"
+        | "nonlocal" | "elif" | "extends" | "implements" | "instanceof" | "typeof"
+        | "delete" | "do" | "defer" | "select" | "go" | "range" | "chan" | "map"
+        | "readonly" | "consteval" | "constexpr" | "noexcept" | "template" | "typename"
+        | "operator" | "and" | "or" | "not" | "is" => Kind::Keyword,
         "mutable_specifier" => Kind::Keyword,
         "true" | "false" => Kind::Number,
         "=" | "+" | "-" | "*" | "/" | "%" | "!" | "?" | "&" | "|" | "^" | "&&"
@@ -237,11 +277,27 @@ fn highlight(tree: &Tree, text: &str, dark: bool) -> Vec<Vec<ColorSpan>> {
     }
 }
 
-impl RustSyntax {
-    pub fn update(&mut self, text: &SharedString, dark: bool) -> Option<SyntaxLines> {
+pub(super) fn language(extension: &str) -> Option<tree_sitter::Language> {
+    Some(match extension {
+        "rs" => tree_sitter_rust::LANGUAGE.into(),
+        "c" => tree_sitter_c::LANGUAGE.into(),
+        "h" | "hpp" | "hh" | "hxx" | "cpp" | "cc" | "cxx" => tree_sitter_cpp::LANGUAGE.into(),
+        "cs" | "csx" => tree_sitter_c_sharp::LANGUAGE.into(),
+        "go" => tree_sitter_go::LANGUAGE.into(),
+        "java" => tree_sitter_java::LANGUAGE.into(),
+        "js" | "jsx" | "mjs" | "cjs" => tree_sitter_javascript::LANGUAGE.into(),
+        "ts" | "mts" | "cts" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        "py" | "pyw" | "pyi" => tree_sitter_python::LANGUAGE.into(),
+        _ => return None,
+    })
+}
+
+impl TreeSyntax {
+    pub fn update(&mut self, text: &SharedString, dark: bool, language: tree_sitter::Language) -> Option<SyntaxLines> {
         if self.parser.is_none() {
             let mut parser = Parser::new();
-            parser.set_language(&tree_sitter_rust::LANGUAGE.into()).ok()?;
+            parser.set_language(&language).ok()?;
             self.parser = Some(parser);
         }
         let same_text = self.text.as_str().as_ptr() == text.as_str().as_ptr()

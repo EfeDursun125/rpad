@@ -52,7 +52,7 @@ The View menu controls word wrap, line numbers and smooth animations. Above 50,0
 
 ## Syntax highlighting
 
-Rust (`.rs`) uses Tree-sitter with incremental parsing and a context-aware palette for types, functions, macros, attributes, constants, fields, variables, comments and literals. This is local syntax analysis, not Rust Analyzer or cross-file semantic resolution. Other languages retain the existing Syntect grammars and theme. If the Rust parser cannot initialize, Syntect remains the fallback.
+Rust, C, C++, C#, Go, Java, JavaScript, TypeScript (including JSX/TSX) and Python use Tree-sitter with incremental parsing and a shared context-aware palette for types, functions, macros, attributes, constants, fields, variables, comments and literals. Other supported languages use a richer Syntect scope theme with conservative identifier coloring in programming-language grammar gaps. Plain text is unchanged. This is local syntax analysis, not cross-file semantic resolution. Syntect remains the fallback if a parser cannot initialize.
 
 Known file extensions select syntax colors automatically, including Lua, C/C++, headers,
 Pawn (`.sma`, `.pwn`), SourcePawn (`.sp`), GDScript (`.gd`), Java (`.java`), C# (`.cs`,
