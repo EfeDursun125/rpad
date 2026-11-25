@@ -1,17 +1,55 @@
 name: Packages
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ['v*']
     branches: ['release/v*']
 permissions:
   contents: read
 jobs:
+  prepare:
+    # Only a successful push CI on trusted main may trigger automatic publishing.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.version.outputs.build }}
+      sha: ${{ steps.version.outputs.sha }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" == workflow_run ]]; then
+            # The requested release is a one-time automatic publication.
+            if [[ "$tag" != v0.1.7 ]] || gh release view "$tag" >/dev/null 2>&1; then
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo 'build=true' >> "$GITHUB_OUTPUT"
   windows:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --release --locked
@@ -19,43 +57,47 @@ jobs:
       - run: python scripts/package-source.py
       - run: python scripts/collect-licenses.py
       - run: python scripts/package-windows.py
-      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.5-windows-x86_64.exe
+      - run: Copy-Item target/release/rpad.exe dist/RPad-0.1.7-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-windows-x86_64
           path: |
-            dist/RPad-0.1.5-windows-x86_64.zip
-            dist/RPad-0.1.5-windows-x86_64.exe
+            dist/RPad-0.1.7-windows-x86_64.zip
+            dist/RPad-0.1.7-windows-x86_64.exe
   appimage:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev libegl1-mesa-dev libgl1-mesa-dev libxkbcommon-dev patchelf
+      - run: cargo test --locked
       - run: cargo build --release --locked
       - run: python3 scripts/package-source.py && python3 scripts/collect-licenses.py
       - name: AppImage
         run: |
           ./scripts/build-appdir.sh
           cp -r dist/licenses target/RPad.AppDir/usr/share/doc/rpad/
-          cp dist/*sources.tar.gz dist/RPad-0.1.5-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
+          cp dist/*sources.tar.gz dist/RPad-0.1.7-source.tar.gz target/RPad.AppDir/usr/share/doc/rpad/
           ./scripts/build-appimage.sh
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.5-x86_64.AppImage --version
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/RPad-0.1.7-x86_64.AppImage --version
       - uses: actions/upload-artifact@v4
         with:
           name: RPad-AppImage-x86_64
           path: |
-            dist/RPad-0.1.5-x86_64.AppImage
-            dist/RPad-0.1.5-source.tar.gz
+            dist/RPad-0.1.7-x86_64.AppImage
+            dist/RPad-0.1.7-source.tar.gz
             dist/third-party-sources.tar.gz
   release:
-    needs: [windows, appimage]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
+    needs: [prepare, windows, appimage]
+    if: needs.prepare.outputs.build == 'true' && (github.event_name == 'workflow_run' || startsWith(github.ref, 'refs/tags/v') || (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v')))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -68,10 +110,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_REF: ${{ github.ref_name }}
-          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
-          tag="${RELEASE_REF#release/}"
+          tag="$RELEASE_TAG"
+          if [[ "$EVENT" == workflow_run ]] && gh release view "$tag" >/dev/null 2>&1; then
+            exit 0
+          fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           cd artifacts
           sha256sum *.AppImage *.exe *.zip *.tar.gz > SHA256SUMS
@@ -81,8 +127,8 @@ jobs:
             'Linux: download the AppImage and mark it executable.' \
             'Windows: download the EXE, or use the ZIP for the installer, notices and source.' \
             '' \
-            'Adds Pawn, SourcePawn, GDScript, Java, C# and CMake highlighting, improves Lua colors and selected tab markers, and caches editor rendering and search work.' \
-            'Preserves normal window dimensions when closing fullscreen or maximized, and fixes the Wayland application icon identity.' \
+            'Adds the right-click editing menu, persistent font picker and multi-language Tree-sitter syntax highlighting.' \
+            'Adds background search and highlighting, bounded piece-table editing, crash recovery and Linux/Windows ACL preservation.' \
             'Built with optimization level 3, fat LTO and one codegen unit.' \
             > release-notes.md
           if gh release view "$tag" >/dev/null 2>&1; then

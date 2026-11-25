@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7
+
+- Add a right-click editing menu and persistent installed-font picker with preview.
+- Add incremental Tree-sitter highlighting for Rust, C/C++, C#, Go, Java, JavaScript, TypeScript and Python; improve Syntect colors for other languages.
+- Move large-document search, replace-all and syntax parsing to background workers.
+- Add bounded piece-table editing, viewport-only line numbers for very large documents and fewer text copies.
+- Add crash recovery, safer atomic saves and Linux xattr/POSIX ACL and Windows DACL preservation.
+- Allow an optional monitor-aware FPS override and fix replacement selection.
+- Correct dependency lockfile and compilation compatibility with Slint's no-std core.
+
 ## 0.1.5
 
 - Read files asynchronously in chunks and report load progress.

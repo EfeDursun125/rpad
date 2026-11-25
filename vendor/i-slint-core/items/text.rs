@@ -30,7 +30,7 @@ use crate::rtti::*;
 use crate::string::string_to_float;
 use crate::window::{InputMethodProperties, InputMethodRequest, WindowAdapter, WindowInner};
 use crate::{Callback, Coord, Property, SharedString, SharedVector};
-use alloc::{rc::Rc, string::String};
+use alloc::rc::Rc;
 use const_field_offset::FieldOffsets;
 use core::cell::Cell;
 use core::pin::Pin;

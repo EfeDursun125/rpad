@@ -1,6 +1,7 @@
 //! Native syntax trees with context-aware colors and incremental reparsing.
 use super::{ColorSpan, SyntaxLines};
 use crate::{Color, SharedString};
+use alloc::{vec, vec::Vec};
 use std::sync::Arc;
 use tree_sitter::{InputEdit, Node, Parser, Point, Tree};
 
