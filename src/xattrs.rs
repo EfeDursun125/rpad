@@ -30,9 +30,8 @@ fn read_value(mut get: impl FnMut(*mut libc::c_void, usize) -> isize) -> io::Res
 }
 
 fn names(file: &File) -> io::Result<Vec<CString>> {
-    let result = read_value(|ptr, size| unsafe {
-        libc::flistxattr(file.as_raw_fd(), ptr.cast(), size)
-    });
+    let result =
+        read_value(|ptr, size| unsafe { libc::flistxattr(file.as_raw_fd(), ptr.cast(), size) });
     let bytes = match result {
         Ok(bytes) => bytes,
         Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => return Ok(Vec::new()),
@@ -49,9 +48,7 @@ fn names(file: &File) -> io::Result<Vec<CString>> {
 }
 
 fn value(file: &File, name: &CStr) -> io::Result<Vec<u8>> {
-    read_value(|ptr, size| unsafe {
-        libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), ptr, size)
-    })
+    read_value(|ptr, size| unsafe { libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), ptr, size) })
 }
 
 fn set(file: &File, name: &CStr, bytes: &[u8]) -> io::Result<()> {
@@ -116,6 +113,9 @@ mod tests {
         }
         let mut document = crate::document::Document::open(&path).unwrap();
         document.save(&path, "changed").unwrap();
-        assert_eq!(value(&File::open(&path).unwrap(), name).unwrap(), b"metadata");
+        assert_eq!(
+            value(&File::open(&path).unwrap(), name).unwrap(),
+            b"metadata"
+        );
     }
 }

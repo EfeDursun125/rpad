@@ -44,7 +44,7 @@ RPad edits one file per window. A nonexistent filename opens a new document at t
 
 The Find toolbar button toggles the search panel. Keyboard shortcuts open it and focus the search field. Tab inserts a real tab character in the editor. Search is case-sensitive plain-text search and wraps around the document. Replacements can be undone. For documents of 1 MiB or larger, search and Replace all compute their results on a background worker; stale results are discarded if the document or query changes. Unsaved changes are checked before creating a new document, opening another file or closing the window.
 
-The View menu controls word wrap, line numbers and smooth animations. Word wrap is enabled by default; saved preferences take precedence. View preferences, text size and window dimensions are saved after changes and on exit. The last window size is restored on launch in logical pixels, including across display scale changes:
+The View menu controls word wrap, line numbers and smooth animations. Above 50,000 lines the gutter switches to viewport-only line numbers positioned from the editor's actual paragraph layout (including wrapped text); individual line-number animations remain enabled for smaller files. Word wrap is enabled by default; saved preferences take precedence. View preferences, text size and window dimensions are saved after changes and on exit. The last window size is restored on launch in logical pixels, including across display scale changes:
 
 - Linux: `$XDG_CONFIG_HOME/rpad/settings.conf`, or `~/.config/rpad/settings.conf`.
 - Windows: `%APPDATA%/rpad/settings.conf`.

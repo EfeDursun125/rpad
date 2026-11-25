@@ -156,24 +156,28 @@ impl Session {
         let weak = ui.as_weak();
         let tx = sender.clone();
         let mut previous: Option<SharedString> = None;
-        timer.start(slint::TimerMode::Repeated, Duration::from_secs(2), move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            if let Some(error) = received_errors.try_iter().last() {
-                ui.set_status(format!("Recovery snapshot failed: {error}").into());
-                previous = None;
-            }
-            let next = ui.get_dirty().then(|| ui.get_document_text());
-            let unchanged = match (&previous, &next) {
-                (Some(before), Some(after)) => same_snapshot(before, after),
-                (None, None) => true,
-                _ => false,
-            };
-            if !unchanged && tx.try_send(Message::Snapshot(next.clone())).is_ok() {
-                previous = next;
-            }
-        });
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_secs(2),
+            move || {
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                if let Some(error) = received_errors.try_iter().last() {
+                    ui.set_status(format!("Recovery snapshot failed: {error}").into());
+                    previous = None;
+                }
+                let next = ui.get_dirty().then(|| ui.get_document_text());
+                let unchanged = match (&previous, &next) {
+                    (Some(before), Some(after)) => same_snapshot(before, after),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !unchanged && tx.try_send(Message::Snapshot(next.clone())).is_ok() {
+                    previous = next;
+                }
+            },
+        );
 
         Ok(Self {
             timer,

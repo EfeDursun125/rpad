@@ -3,6 +3,7 @@ import { ScrollView } from "solid-scrollview.slint";
 import { AnimatedLineNumber } from "line-number.slint";
 
 export struct LineRow { content: string, shown: bool, animate-on-create: bool }
+export struct VisibleLine { number: int, y-position: float }
 
 export global Theme {
     in-out property <color> surface: #191211;
@@ -157,7 +158,9 @@ export component AppWindow inherits Window {
     in-out property <string> format-label: "UTF-8 · LF";
     in-out property <[LineRow]> document-lines: [];
     in-out property <int> active-lines;
-    private property <bool> show-line-gutter: root.show-lines && root.active-lines <= 50000;
+    private property <bool> show-line-gutter: root.show-lines;
+    private property <bool> virtual-gutter: root.active-lines > 50000;
+    pure callback visible-line-numbers(float, float, float, float, string, bool, string, int, int) -> [VisibleLine];
     in-out property <int> line-revision;
     in-out property <string> editor-font: "Noto Sans Mono";
     in-out property <int> editor-font-weight: 400;
@@ -317,7 +320,7 @@ export component AppWindow inherits Window {
                     width: 54px; height: parent.height;
                     background: Theme.container.with-alpha(0.38);
                     clip: true;
-                    VerticalLayout {
+                    if !root.virtual-gutter: VerticalLayout {
                         x: 0px; y: 20px + scroll.content-y; width: parent.width;
                         spacing: 0px;
                         for line[index] in root.document-lines: Rectangle {
@@ -338,6 +341,23 @@ export component AppWindow inherits Window {
                                 wrap: root.wrap-lines ? word-wrap : no-wrap;
                                 font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;
                             }
+                        }
+                    }
+                    if root.virtual-gutter: Rectangle {
+                        width: parent.width; height: parent.height;
+                        for line in root.visible-line-numbers(
+                            (-scroll.content-y - 20px - root.line-height) / 1px,
+                            (scroll.visible-height - scroll.content-y - 20px) / 1px,
+                            editor.width / 1px, editor.height / 1px,
+                            root.document-text, root.wrap-lines, root.editor-font,
+                            root.editor-font-weight, root.font-pixels
+                        ): Text {
+                            x: 0px; y: line.y-position * 1px + 20px + scroll.content-y;
+                            width: parent.width - 12px; height: root.line-height;
+                            text: "\{line.number}";
+                            font-family: root.editor-font; font-weight: root.editor-font-weight; font-size: root.font-pixels * 1px;
+                            color: Theme.muted.with-alpha(0.55); horizontal-alignment: right;
+                            vertical-alignment: center;
                         }
                     }
                 }

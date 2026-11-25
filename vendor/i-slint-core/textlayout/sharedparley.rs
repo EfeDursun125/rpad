@@ -841,6 +841,23 @@ pub struct TextInputLayout<'a> {
 
 #[allow(dead_code)]
 impl<'a> TextInputLayout<'a> {
+    /// Logical document line numbers and physical y coordinates for paragraph
+    /// starts inside a viewport. Binary search avoids walking off-screen rows.
+    pub fn visible_paragraph_starts(&self, top: f32, bottom: f32) -> Vec<(usize, f32)> {
+        if !top.is_finite() || !bottom.is_finite() || top > bottom {
+            return Vec::new();
+        }
+        let offset = self.layout.y_offset.get();
+        let paragraphs = &self.layout.paragraphs;
+        let first = paragraphs.partition_point(|para| para.y.get() + offset < top);
+        let end = paragraphs.partition_point(|para| para.y.get() + offset <= bottom);
+        paragraphs[first..end]
+            .iter()
+            .enumerate()
+            .map(|(index, para)| (first + index + 1, para.y.get() + offset))
+            .collect()
+    }
+
     /// The paragraphs, top to bottom. A hard line break separates two of them and belongs to
     /// neither, since Slint splits the text at `\n` before shaping.
     pub(crate) fn paragraphs(&self) -> impl Iterator<Item = TextInputParagraph<'a>> {

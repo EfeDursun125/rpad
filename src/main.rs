@@ -211,7 +211,57 @@ fn selection(ui: &AppWindow) -> history::Selection {
         cursor: ui.get_cursor_offset(),
     }
 }
+fn bind_virtual_gutter(ui: &AppWindow) {
+    let weak = ui.as_weak();
+    ui.on_visible_line_numbers(move |top, bottom, width, height, _, _, _, _, _| {
+        use i_slint_core::{
+            item_tree::ItemRc, items::TextInput, lengths::LogicalSize,
+            textlayout::sharedparley::with_text_input_layout, window::WindowInner,
+        };
+        let Some(ui) = weak.upgrade() else {
+            return slint::ModelRc::default();
+        };
+        if !ui.get_show_lines() || width <= 0.0 || height <= 0.0 {
+            return slint::ModelRc::default();
+        }
+        let window = WindowInner::from_pub(ui.window());
+        let adapter = window.window_adapter();
+        let scale = ui.window().scale_factor();
+        let root = ItemRc::new_root(window.component());
+        let mut rows = Vec::new();
+        root.visit_descendants(|item| {
+            if let Some(input) =
+                i_slint_core::items::ItemRef::downcast_pin::<TextInput>(item.borrow())
+            {
+                if !input.single_line() {
+                    rows = with_text_input_layout(
+                        adapter.renderer(),
+                        input,
+                        &item,
+                        LogicalSize::new(width, height),
+                        |layout| {
+                            layout
+                                .visible_paragraph_starts(top * scale, bottom * scale)
+                                .into_iter()
+                                .map(|(number, y)| VisibleLine {
+                                    number: number as i32,
+                                    y_position: y / scale,
+                                })
+                                .collect()
+                        },
+                    )
+                    .unwrap_or_default();
+                    return std::ops::ControlFlow::Break(());
+                }
+            }
+            std::ops::ControlFlow::Continue(())
+        });
+        slint::ModelRc::new(slint::VecModel::from(rows))
+    });
+}
+
 fn bind_line_metrics(ui: &AppWindow) {
+    bind_virtual_gutter(ui);
     let weak = ui.as_weak();
 
     ui.on_editor_line_height(move |family, weight, pixel_size| {

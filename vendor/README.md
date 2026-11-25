@@ -42,7 +42,7 @@ Selection spans are matched by paragraph, line and within-line ordinal, so addin
 
 RPad also shapes literal tabs at four-column stops without changing source byte offsets. TextInput syntax colors use Syntect grammars with cached per-line parser states; color-only spans preserve font settings, selection foreground and insertion opacity.
 
-Unchanged plain-text paragraphs retain their shaped glyphs and width/alignment-specific
+Large-document line numbers use a binary search over the real paragraph y coordinates and only instantiate rows inside the viewport. Unchanged plain-text paragraphs retain their shaped glyphs and width/alignment-specific
 line breaking across edits. Reuse checks text, syntax spans, font, wrap mode, stroke,
 and display scale. A renderer-owned paragraph memo additionally reuses repeated lines;
 it is limited to 4096 entries and an estimated 32 MiB, with an independently bounded
