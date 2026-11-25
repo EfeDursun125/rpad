@@ -1,7 +1,7 @@
 // RPad: cached, color-only syntax spans. Font metrics and source byte offsets stay unchanged.
 use crate::{Color, SharedString};
 use alloc::vec::Vec;
-use std::{ops::Range, rc::Rc};
+use std::{ops::Range, rc::Rc, sync::Arc};
 use syntect::{
     highlighting::{HighlightIterator, HighlightState, Highlighter, ThemeSet},
     parsing::{ParseState, ScopeStack, SyntaxSet},
@@ -18,7 +18,7 @@ struct Line {
     text: SharedString,
     parse: Rc<ParseState>,
     highlight: Rc<HighlightState>,
-    spans: Rc<Vec<ColorSpan>>,
+    spans: Arc<Vec<ColorSpan>>,
 }
 
 std::thread_local! {
@@ -35,7 +35,9 @@ std::thread_local! {
     static THEMES: ThemeSet = ThemeSet::load_defaults();
 }
 
-pub type SyntaxLines = Rc<Vec<Rc<Vec<ColorSpan>>>>;
+pub type SyntaxLines = Arc<Vec<Arc<Vec<ColorSpan>>>>;
+
+pub const ASYNC_THRESHOLD: usize = 1024 * 1024;
 
 #[derive(Default)]
 pub struct SyntaxCache {
@@ -219,7 +221,7 @@ impl SyntaxCache {
                             text: text.into(),
                             parse: shared_parse.clone(),
                             highlight: shared_highlight.clone(),
-                            spans: Rc::new(spans),
+                            spans: Arc::new(spans),
                         }
                     };
 
@@ -243,7 +245,7 @@ impl SyntaxCache {
                 self.filename = filename;
                 self.dark = dark;
                 self.text = text.clone();
-                self.output = Rc::new(self.lines.iter().map(|line| line.spans.clone()).collect());
+                self.output = Arc::new(self.lines.iter().map(|line| line.spans.clone()).collect());
                 self.output.clone()
             })
         })

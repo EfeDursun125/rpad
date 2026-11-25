@@ -15,6 +15,7 @@ pub fn configure_filename(ui: &AppWindow, filename: slint::SharedString) {
         if let Some(input) = i_slint_core::items::ItemRef::downcast_pin::<TextInput>(item.borrow())
         {
             if !input.single_line() {
+                input.enable_async_syntax();
                 input.set_syntax(filename.clone(), dark);
                 return ControlFlow::Break(());
             }
@@ -22,6 +23,120 @@ pub fn configure_filename(ui: &AppWindow, filename: slint::SharedString) {
         ControlFlow::Continue(())
     });
     ui.window().request_redraw();
+}
+
+use i_slint_core::syntax_highlight::{SyntaxCache, ASYNC_THRESHOLD};
+use slint::SharedString;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    mpsc, Arc,
+};
+
+struct Job {
+    generation: u64,
+    text: SharedString,
+    filename: SharedString,
+    dark: bool,
+}
+
+pub struct Worker {
+    sender: mpsc::Sender<Option<Job>>,
+    generation: Arc<AtomicU64>,
+}
+
+impl Worker {
+    pub fn new(ui: &AppWindow) -> Self {
+        let (sender, receiver) = mpsc::channel::<Option<Job>>();
+        let generation = Arc::new(AtomicU64::new(0));
+        let current = generation.clone();
+        let weak = ui.as_weak();
+        std::thread::spawn(move || {
+            let mut cache = SyntaxCache::default();
+            while let Ok(mut message) = receiver.recv() {
+                for next in receiver.try_iter() {
+                    message = next;
+                }
+                let Some(job) = message else {
+                    cache = SyntaxCache::default();
+                    continue;
+                };
+                if job.generation != current.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let spans = cache.update(&job.text, job.filename.clone(), job.dark);
+                if job.generation != current.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let current = current.clone();
+                let weak = weak.clone();
+                if slint::invoke_from_event_loop(move || {
+                    let Some(ui) = weak.upgrade() else {
+                        return;
+                    };
+                    if job.generation != current.load(Ordering::Relaxed)
+                        || !crate::edit::same_snapshot(&ui.get_document_text(), &job.text)
+                        || ui.get_document_name() != job.filename
+                        || ui.get_dark_theme() != job.dark
+                    {
+                        return;
+                    }
+                    let root = ItemRc::new_root(WindowInner::from_pub(ui.window()).component());
+                    root.visit_descendants(|item| {
+                        if let Some(input) =
+                            i_slint_core::items::ItemRef::downcast_pin::<TextInput>(item.borrow())
+                        {
+                            if !input.single_line() {
+                                input.set_async_syntax_result(
+                                    job.text.clone(),
+                                    job.filename.clone(),
+                                    job.dark,
+                                    spans.clone(),
+                                );
+                                return ControlFlow::Break(());
+                            }
+                        }
+                        ControlFlow::Continue(())
+                    });
+                    ui.window().request_redraw();
+                })
+                .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Self { sender, generation }
+    }
+
+    pub fn submit(&self, ui: &AppWindow) {
+        let generation = self
+            .generation
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        let text = ui.get_document_text();
+        if text.len() < ASYNC_THRESHOLD {
+            let _ = self.sender.send(None);
+            let root = ItemRc::new_root(WindowInner::from_pub(ui.window()).component());
+            root.visit_descendants(|item| {
+                if let Some(input) =
+                    i_slint_core::items::ItemRef::downcast_pin::<TextInput>(item.borrow())
+                {
+                    if !input.single_line() {
+                        input.clear_async_syntax_result();
+                        return ControlFlow::Break(());
+                    }
+                }
+                ControlFlow::Continue(())
+            });
+            return;
+        }
+        let _ = self.sender.send(Some(Job {
+            generation,
+            text,
+            filename: ui.get_document_name(),
+            dark: ui.get_dark_theme(),
+        }));
+    }
 }
 
 #[cfg(test)]
@@ -200,7 +315,7 @@ mod tests {
 #[cfg(test)]
 mod cache_tests {
     use i_slint_core::syntax_highlight::SyntaxCache;
-    use std::rc::Rc;
+    use std::sync::Arc;
     #[test]
     fn unchanged_parser_tail_is_reused_and_plain_text_stays_plain() {
         let mut cache = SyntaxCache::default();
@@ -211,9 +326,9 @@ mod cache_tests {
         );
         let changed: slint::SharedString = "local a = 2\nprint(a)\nreturn a".into();
         let after = cache.update(&changed, "test.lua".into(), true);
-        assert!(Rc::ptr_eq(&before[1], &after[1]));
+        assert!(Arc::ptr_eq(&before[1], &after[1]));
         let unchanged = cache.update(&changed, "test.lua".into(), true);
-        assert!(Rc::ptr_eq(&after, &unchanged));
+        assert!(Arc::ptr_eq(&after, &unchanged));
         assert!(cache
             .update(&"some plain text".into(), "notes.txt".into(), true)
             .is_empty());

@@ -237,6 +237,7 @@ fn bind_line_metrics(ui: &AppWindow) {
 fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let search = Rc::new(RefCell::new(search::SearchCache::default()));
     let worker = Rc::new(search_worker::Worker::new(ui));
+    let syntax_worker = Rc::new(syntax::Worker::new(ui));
     let weak = ui.as_weak();
     ui.on_lines_visibility_changed(move || {
         if let Some(ui) = weak.upgrade() {
@@ -245,12 +246,15 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     });
 
     let weak = ui.as_weak();
+    let syntax_jobs = syntax_worker.clone();
     ui.on_syntax_changed(move || {
         if let Some(ui) = weak.upgrade() {
             syntax::configure(&ui);
+            syntax_jobs.submit(&ui);
         }
     });
     syntax::configure(ui);
+    syntax_worker.submit(ui);
 
     let weak = ui.as_weak();
     ui.on_indent_lines(move |reverse| {
@@ -276,6 +280,7 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let weak = ui.as_weak();
     let doc = state.clone();
     let edits = history.clone();
+    let syntax_jobs = syntax_worker.clone();
     ui.on_edited(move || {
         if let Some(ui) = weak.upgrade() {
             let edit = edits
@@ -283,6 +288,7 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
                 .record(ui.get_document_text(), selection(&ui));
             update_lines_edit(&ui, edit);
             refresh_content(&ui, &doc.borrow());
+            syntax_jobs.submit(&ui);
         }
     });
     let weak = ui.as_weak();
@@ -301,16 +307,19 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let edits = history.clone();
     let matches = search.clone();
     let jobs = worker.clone();
+    let syntax_jobs = syntax_worker.clone();
     ui.on_history_reset(move || {
         if let Some(ui) = weak.upgrade() {
             *edits.borrow_mut() = history::History::new(ui.get_document_text());
             matches.borrow_mut().clear();
             jobs.clear();
+            syntax_jobs.submit(&ui);
         }
     });
     let weak = ui.as_weak();
     let edits = history.clone();
     let doc = state.clone();
+    let syntax_jobs = syntax_worker;
     ui.on_history_command(move |redo| {
         let result = edits.borrow_mut().step(redo);
         if let (Some(ui), Some((text, selection))) = (weak.upgrade(), result) {
@@ -318,6 +327,7 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
             update_lines(&ui);
             ui.invoke_select_range(selection.anchor, selection.cursor);
             refresh_content(&ui, &doc.borrow());
+            syntax_jobs.submit(&ui);
         }
     });
     let weak = ui.as_weak();

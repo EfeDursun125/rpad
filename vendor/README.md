@@ -48,7 +48,7 @@ and display scale. A renderer-owned paragraph memo additionally reuses repeated 
 it is limited to 4096 entries and an estimated 32 MiB, with an independently bounded
 LRU queue. Giant paragraphs bypass that additional memo. Renderer teardown frees the
 memo; font/style changes invalidate the applicable entries. Styled text retains its
-original shaping path. Syntax caches share unchanged parser states and color vectors.
+original shaping path. Syntax caches share unchanged parser states and color vectors. Large-document syntax output uses shared Arc-backed immutable spans from a background parser; the renderer is invalidated when a matching snapshot arrives.
 
 Selected literal tabs display a faint, font-independent right arrow. Tab rectangles
 are cached with line breaking and sorted by visual line/x position. Painting walks

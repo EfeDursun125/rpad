@@ -767,6 +767,17 @@ pub struct TextInput {
     pub syntax_dark: Property<bool>,
     #[cfg(feature = "shared-parley")]
     syntax_cache: std::cell::RefCell<crate::syntax_highlight::SyntaxCache>,
+    #[cfg(feature = "shared-parley")]
+    async_syntax_enabled: Property<bool>,
+    #[cfg(feature = "shared-parley")]
+    async_syntax_revision: Property<i32>,
+    #[cfg(feature = "shared-parley")]
+    async_syntax_result: std::cell::RefCell<Option<(
+        SharedString,
+        SharedString,
+        bool,
+        crate::syntax_highlight::SyntaxLines,
+    )>>,
     pub text: Property<SharedString>,
     pub font_family: Property<SharedString>,
     pub font_size: Property<LogicalLength>,
@@ -1352,7 +1363,23 @@ impl RenderString for TextInput {
     #[cfg(feature = "shared-parley")]
     fn syntax_spans(self: Pin<&Self>, text: &SharedString) -> crate::syntax_highlight::SyntaxLines {
         if self.is_password() || !self.preedit_text().is_empty() { return Default::default(); }
-        self.syntax_cache.borrow_mut().update(text, self.syntax_filename(), self.syntax_dark())
+        let filename = self.syntax_filename();
+        let dark = self.syntax_dark();
+        if text.len() >= crate::syntax_highlight::ASYNC_THRESHOLD
+            && Self::FIELD_OFFSETS.async_syntax_enabled().apply_pin(self).get()
+        {
+            // Register the revision with the renderer's property tracker so a
+            // completed worker result invalidates the shaped color spans.
+            let _ = Self::FIELD_OFFSETS.async_syntax_revision().apply_pin(self).get();
+            return self.async_syntax_result.borrow().as_ref()
+                .filter(|(source, name, is_dark, _)| {
+                    source.as_ptr() == text.as_ptr() && source.len() == text.len()
+                        && *name == filename && *is_dark == dark
+                })
+                .map(|(_, _, _, spans)| spans.clone())
+                .unwrap_or_default();
+        }
+        self.syntax_cache.borrow_mut().update(text, filename, dark)
     }
     fn text(self: Pin<&Self>) -> PlainOrStyledText {
         // Deliberately not `visual_representation`, which would size the item off the cursor and
@@ -2019,6 +2046,32 @@ impl TextInput {
     pub fn set_syntax(self: Pin<&Self>, filename: SharedString, dark: bool) {
         Self::FIELD_OFFSETS.syntax_filename().apply_pin(self).set(filename);
         Self::FIELD_OFFSETS.syntax_dark().apply_pin(self).set(dark);
+    }
+
+    #[cfg(feature = "shared-parley")]
+    pub fn enable_async_syntax(self: Pin<&Self>) {
+        Self::FIELD_OFFSETS.async_syntax_enabled().apply_pin(self).set(true);
+    }
+
+    #[cfg(feature = "shared-parley")]
+    pub fn set_async_syntax_result(
+        self: Pin<&Self>,
+        text: SharedString,
+        filename: SharedString,
+        dark: bool,
+        spans: crate::syntax_highlight::SyntaxLines,
+    ) {
+        *self.async_syntax_result.borrow_mut() = Some((text, filename, dark, spans));
+        let revision = Self::FIELD_OFFSETS.async_syntax_revision().apply_pin(self);
+        revision.set(revision.get().wrapping_add(1));
+    }
+
+    #[cfg(feature = "shared-parley")]
+    pub fn clear_async_syntax_result(self: Pin<&Self>) {
+        if self.async_syntax_result.borrow_mut().take().is_some() {
+            let revision = Self::FIELD_OFFSETS.async_syntax_revision().apply_pin(self);
+            revision.set(revision.get().wrapping_add(1));
+        }
     }
 
     pub fn set_selection_offsets(

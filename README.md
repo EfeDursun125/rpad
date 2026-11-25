@@ -55,7 +55,7 @@ The View menu controls word wrap, line numbers and smooth animations. Word wrap 
 Known file extensions select syntax colors automatically, including Lua, C/C++, headers,
 Pawn (`.sma`, `.pwn`), SourcePawn (`.sp`), GDScript (`.gd`), Java (`.java`), C# (`.cs`,
 `.csx`), CMake (`CMakeLists.txt`, `.cmake`), Rust, Python, JavaScript, HTML/CSS, JSON, YAML, TOML, shell scripts and Markdown.
-Colors follow the light/dark theme and preserve selection colors and text animations.
+Colors follow the light/dark theme and preserve selection colors and text animations. For documents of at least 1 MiB, syntax parsing runs on a background worker. Colors may appear after the first plain-text frame; stale results are discarded.
 
 ## Animations
 
