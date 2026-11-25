@@ -12,6 +12,7 @@ pub struct Settings {
     lines: bool,
     smooth: bool,
     font_size: i32,
+    font_family: String,
     window_width: u32,
     window_height: u32,
 }
@@ -35,6 +36,7 @@ impl Settings {
             lines: ui.get_show_lines(),
             smooth: ui.get_smooth_caret(),
             font_size: ui.get_font_pixels(),
+            font_family: ui.get_font_override().to_string(),
         }
     }
 
@@ -58,6 +60,11 @@ impl Settings {
         ui.set_show_lines(self.lines);
         ui.set_smooth_caret(self.smooth);
         ui.set_font_pixels(self.font_size);
+        ui.set_font_override(self.font_family.as_str().into());
+        if !self.font_family.is_empty() {
+            ui.set_editor_font(self.font_family.as_str().into());
+            ui.set_editor_font_weight(400);
+        }
     }
 
     pub fn load(path: &Path, mut defaults: Self) -> Self {
@@ -91,6 +98,9 @@ impl Settings {
                         defaults.font_size = value.clamp(10, 36);
                     }
                 }
+                "font_family" => {
+                    defaults.font_family = value.trim().to_owned();
+                }
                 "window_width" => {
                     if let Ok(value) = value.trim().parse::<u32>() {
                         defaults.window_width = value.clamp(540, 16384);
@@ -117,13 +127,14 @@ impl Settings {
         let mut file = tempfile::NamedTempFile::new_in(directory)?;
         writeln!(
             file,
-            "wrap={}\nlines={}\nsmooth={}\nfont_size={}\nwindow_width={}\nwindow_height={}",
+            "wrap={}\nlines={}\nsmooth={}\nfont_size={}\nwindow_width={}\nwindow_height={}\nfont_family={}",
             self.wrap,
             self.lines,
             self.smooth,
             self.font_size,
             self.window_width,
-            self.window_height
+            self.window_height,
+            self.font_family.replace(['\r', '\n'], "")
         )?;
         file.as_file().sync_all()?;
         file.persist(path).map_err(|error| error.error)?;
@@ -209,6 +220,7 @@ mod tests {
             lines: false,
             smooth: false,
             font_size: 23,
+            font_family: "JetBrains Mono".into(),
             window_width: 1140,
             window_height: 820,
         };
@@ -218,6 +230,7 @@ mod tests {
             lines: true,
             smooth: true,
             font_size: 16,
+            font_family: String::new(),
             window_width: 980,
             window_height: 700,
         };

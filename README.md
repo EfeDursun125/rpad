@@ -118,3 +118,7 @@ Tests cover file preservation, external-change conflicts, Unicode editing, find/
 RPad uses Slint 1.18.1's Material style. The editor and themed controls are defined in `ui/app.slint`. Native `TextInput` handles layout, selection, clipboard and input methods. The supplied R SVG was adapted into a text-editor icon by replacing its speed trails and play symbol with a document and caret.
 
 The vendored `i-slint-core` patches suppress the native caret and implement rendering-only character and selection effects. Their scope and provenance are documented in [vendor/README.md](vendor/README.md). Other dependency provenance is recorded in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+### Editor menus
+
+Right-click inside the document for Undo, Redo, Cut, Copy, Paste, Select all and Find/replace. Existing selections are kept when right-clicking inside them. View → Editor font opens an installed-font picker with a preview. Select Automatic to follow the detected terminal/system font. The chosen font family is saved in settings; existing settings remain compatible.

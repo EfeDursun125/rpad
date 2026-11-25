@@ -1,4 +1,4 @@
-import { Palette } from "std-widgets.slint";
+import { Palette, ComboBox } from "std-widgets.slint";
 import { ScrollView } from "solid-scrollview.slint";
 import { AnimatedLineNumber } from "line-number.slint";
 
@@ -164,6 +164,16 @@ export component AppWindow inherits Window {
     in-out property <int> line-revision;
     in-out property <string> editor-font: "Noto Sans Mono";
     in-out property <int> editor-font-weight: 400;
+    // Empty override means keep following the detected system/terminal font.
+    in-out property <string> font-override;
+    in-out property <string> automatic-font: "Noto Sans Mono";
+    in-out property <[string]> font-families: ["Automatic"];
+    in-out property <int> font-index: 0;
+    in-out property <bool> font-dialog-open;
+    callback font-menu-requested;
+    callback font-picked(int);
+    in-out property <length> context-x;
+    in-out property <length> context-y;
     in-out property <bool> wrap-lines: true;
     in-out property <bool> show-lines: true;
     callback lines-visibility-changed;
@@ -171,6 +181,8 @@ export component AppWindow inherits Window {
     in-out property <bool> smooth-caret: true;
     in-out property <int> font-pixels: 16;
     changed font-pixels => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
+    changed editor-font => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
+    changed editor-font-weight => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
     changed wrap-lines => { editor.set-selection-offsets(root.anchor-offset, root.cursor-offset); }
     in-out property <bool> find-open;
     in-out property <string> search-text <=> search.text;
@@ -236,6 +248,13 @@ export component AppWindow inherits Window {
     callback replace-text(bool);
     public function select-range(start: int, end: int) { editor.set-selection-offsets(start, end); editor.focus(); }
     public function focus-editor() { editor.focus(); }
+    public function open-context-menu(px: float, py: float) {
+        if !root.io-busy && root.dialog-kind == 0 && !root.font-dialog-open {
+            root.context-x = px * 1px;
+            root.context-y = py * 1px;
+            root.menu = 4;
+        }
+    }
     callback history-command(bool);
     callback history-reset;
     callback insert-at-caret(string);
@@ -265,6 +284,7 @@ export component AppWindow inherits Window {
         forward-focus: editor;
         capture-key-pressed(event) => {
             if root.io-busy { return accept; }
+            if root.menu == 4 && event.text == Key.Escape { root.menu = 0; return accept; }
             return reject;
         }
         key-pressed(event) => {
@@ -378,7 +398,7 @@ export component AppWindow inherits Window {
                         color: Theme.text;
                         single-line: false;
                         wrap: root.wrap-lines ? word-wrap : no-wrap;
-                        enabled: root.dialog-kind == 0 && !root.io-busy;
+                        enabled: root.dialog-kind == 0 && !root.io-busy && !root.font-dialog-open;
                         text-cursor-width: root.smooth-caret ? 0px : -1px;
                         selection-background-color: Theme.accent.with-alpha(0.28);
                         selection-foreground-color: Theme.text;
@@ -445,9 +465,10 @@ export component AppWindow inherits Window {
         }
         if root.menu != 0: TouchArea { clicked => { root.menu = 0; } }
         if root.menu != 0: Rectangle {
-            x: 8px + (root.menu - 1) * 60px; y: 36px;
+            x: root.menu == 4 ? max(0px, min(root.context-x, root.width - self.width - 4px)) : 8px + (root.menu - 1) * 60px;
+            y: root.menu == 4 ? max(0px, min(root.context-y, root.height - self.height - 4px)) : 36px;
             width: 260px;
-            height: root.menu == 1 ? 204px : root.menu == 2 ? 280px : 242px;
+            height: root.menu == 1 ? 204px : 280px;
             background: Theme.container; border-radius: 10px;
             border-width: 0px;
             VerticalLayout {
@@ -457,19 +478,61 @@ export component AppWindow inherits Window {
                 if root.menu == 1: MenuAction { label: "Save"; shortcut: "Ctrl + S"; clicked => { root.action("save"); } }
                 if root.menu == 1: MenuAction { label: "Save as…"; shortcut: "Ctrl + Shift + S"; clicked => { root.action("save-as"); } }
                 if root.menu == 1: MenuAction { label: "Quit"; shortcut: "Ctrl + Q"; clicked => { root.action("quit"); } }
-                if root.menu == 2: MenuAction { label: "Undo"; shortcut: "Ctrl + Z"; clicked => { root.edit-command("undo"); } }
-                if root.menu == 2: MenuAction { label: "Redo"; shortcut: "Ctrl + Shift + Z"; clicked => { root.edit-command("redo"); } }
-                if root.menu == 2: MenuAction { label: "Cut"; shortcut: "Ctrl + X"; clicked => { root.edit-command("cut"); } }
-                if root.menu == 2: MenuAction { label: "Copy"; shortcut: "Ctrl + C"; clicked => { root.edit-command("copy"); } }
-                if root.menu == 2: MenuAction { label: "Paste"; shortcut: "Ctrl + V"; clicked => { root.edit-command("paste"); } }
-                if root.menu == 2: MenuAction { label: "Select all"; shortcut: "Ctrl + A"; clicked => { root.edit-command("select-all"); } }
-                if root.menu == 2: MenuAction { label: "Find / replace"; shortcut: "Ctrl + F"; clicked => { root.open-find(); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Undo"; shortcut: "Ctrl + Z"; clicked => { root.edit-command("undo"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Redo"; shortcut: "Ctrl + Shift + Z"; clicked => { root.edit-command("redo"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Cut"; enabled: root.cursor-offset != root.anchor-offset; shortcut: "Ctrl + X"; clicked => { root.edit-command("cut"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Copy"; enabled: root.cursor-offset != root.anchor-offset; shortcut: "Ctrl + C"; clicked => { root.edit-command("copy"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Paste"; shortcut: "Ctrl + V"; clicked => { root.edit-command("paste"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Select all"; shortcut: "Ctrl + A"; clicked => { root.edit-command("select-all"); } }
+                if root.menu == 2 || root.menu == 4: MenuAction { label: "Find / replace"; shortcut: "Ctrl + F"; clicked => { root.open-find(); } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "Word wrap"; checked: root.wrap-lines; clicked => { root.wrap-lines = !root.wrap-lines; } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "Line numbers"; checked: root.show-lines; clicked => { root.show-lines = !root.show-lines; } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "Smooth animations"; checked: root.smooth-caret; clicked => { root.smooth-caret = !root.smooth-caret; } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "Larger text"; shortcut: "Ctrl + Plus"; clicked => { root.font-pixels = min(36, root.font-pixels + 1); } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "Smaller text"; shortcut: "Ctrl + −"; clicked => { root.font-pixels = max(10, root.font-pixels - 1); } }
+                if root.menu == 3: MenuAction { reserve-check: true; label: "Editor font…"; clicked => { root.menu = 0; root.font-menu-requested(); } }
                 if root.menu == 3: MenuAction { reserve-check: true; label: "About RPad"; clicked => { root.action("about"); } }
+            }
+        }
+    }
+    if root.font-dialog-open: FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.font-dialog-open = false; editor.focus(); return accept; }
+            return reject;
+        }
+        Rectangle {
+            background: #0008;
+            TouchArea {}
+            Rectangle {
+                width: min(parent.width - 32px, 460px);
+                height: 300px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: Theme.container; border-radius: 16px;
+                VerticalLayout {
+                    padding: 24px; spacing: 12px;
+                    Text { text: "Editor font"; font-size: 22px; color: Theme.text; }
+                    Text { text: "Choose an installed font or use the automatic system font."; color: Theme.muted; wrap: word-wrap; font-size: 13px; }
+                    ComboBox {
+                        model: root.font-families;
+                        current-index <=> root.font-index;
+                    }
+                    Rectangle {
+                        background: Theme.surface; border-radius: 8px; vertical-stretch: 1;
+                        Text {
+                            x: 12px; y: 8px; width: parent.width - 24px; height: parent.height - 16px;
+                            text: "fn main() {\n    let value = 42;\n    // Aa 0O 1lI →";
+                            color: Theme.text; font-size: root.font-pixels * 1px;
+                            font-family: root.font-index > 0 && root.font-index < root.font-families.length ? root.font-families[root.font-index] : root.automatic-font;
+                            wrap: word-wrap;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: end; spacing: 8px;
+                        Action { label: "Cancel"; clicked => { root.font-dialog-open = false; editor.focus(); } }
+                        Action { label: "Apply"; filled: true; clicked => { root.font-picked(root.font-index); root.font-dialog-open = false; editor.focus(); } }
+                    }
+                }
             }
         }
     }

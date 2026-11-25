@@ -812,6 +812,7 @@ pub struct TextInput {
     pub edited: Callback<VoidArg>,
     pub key_pressed: Callback<KeyEventArg, EventResult>,
     pub key_released: Callback<KeyEventArg, EventResult>,
+    context_menu_handler: core::cell::RefCell<Option<Rc<dyn Fn(LogicalPoint)>>>,
     pub single_line: Property<bool>,
     pub read_only: Property<bool>,
     pub preedit_text: Property<SharedString>,
@@ -964,6 +965,31 @@ impl Item for TextInput {
                 };
 
                 return InputEventResult::GrabMouse;
+            }
+            MouseEvent::Pressed { button: PointerEventButton::Right, .. }
+                if self.context_menu_handler.borrow().is_some() =>
+            {
+                return InputEventResult::GrabMouse;
+            }
+            MouseEvent::Released { position, button: PointerEventButton::Right, .. }
+                if self.context_menu_handler.borrow().is_some() =>
+            {
+                let handler = self.context_menu_handler.borrow().clone();
+                let (offset, affinity) =
+                    self.byte_offset_for_position(*position, window_adapter, self_rc);
+                let (start, end) = self.selection_anchor_and_cursor();
+                // Keep an existing selection when opening its context menu.
+                if start == end || offset < start || offset >= end {
+                    self.as_ref().anchor_position_byte_offset.set(offset as i32);
+                    self.set_cursor_position_with_affinity(
+                        offset as i32, affinity, true, TextChangeNotify::TriggerCallbacks,
+                        window_adapter, self_rc,
+                    );
+                }
+                if let Some(handler) = handler {
+                    handler(self_rc.map_to_window(*position));
+                }
+                return InputEventResult::EventAccepted;
             }
             MouseEvent::Pressed { button: PointerEventButton::Middle, .. } => {
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -2082,6 +2108,11 @@ impl TextInput {
             let revision = Self::FIELD_OFFSETS.async_syntax_revision().apply_pin(self);
             revision.set(revision.get().wrapping_add(1));
         }
+    }
+
+    /// Install an optional application-owned right-click menu for this input.
+    pub fn on_context_menu(self: Pin<&Self>, handler: impl Fn(LogicalPoint) + 'static) {
+        *self.context_menu_handler.borrow_mut() = Some(Rc::new(handler));
     }
 
     pub fn set_selection_offsets(

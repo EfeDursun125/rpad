@@ -312,6 +312,20 @@ pub fn detect_ui() -> Option<EditorFont> {
     })
 }
 
+/// Enumerate the same system font collection used by Slint's renderer.
+pub fn families() -> Vec<String> {
+    use i_slint_core::textlayout::sharedparley::fontique::{Collection, CollectionOptions};
+    let mut collection = Collection::new(CollectionOptions::default());
+    let mut families: Vec<_> = collection
+        .family_names()
+        .filter(|name| !name.trim().is_empty() && !name.contains(['\r', '\n']))
+        .map(str::to_owned)
+        .collect();
+    families.sort_by_cached_key(|name| name.to_lowercase());
+    families.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    families
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

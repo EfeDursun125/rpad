@@ -145,15 +145,51 @@ mod tests {
     #[test]
     fn common_language_symbols_receive_context_colors() {
         for (file, source, names) in [
-            ("sample.cpp", "struct Widget { int count; }; void run() { Widget item; item.count = 42; }", ["Widget", "count", "run"]),
-            ("sample.c", "struct Widget { int count; }; void run(void) { struct Widget item; }", ["Widget", "count", "run"]),
-            ("sample.py", "class Widget:\n    def run(self, count):\n        return count", ["Widget", "run", "count"]),
-            ("sample.js", "class Widget { run(count) { return count; } }", ["Widget", "run", "count"]),
-            ("sample.ts", "class Widget { run(count: number): number { return count; } }", ["Widget", "run", "count"]),
-            ("sample.cs", "class Widget { int count; void run() {} }", ["Widget", "run", "count"]),
-            ("sample.java", "class Widget { int count; void run() {} }", ["Widget", "run", "count"]),
-            ("sample.go", "package demo\ntype Widget struct { count int }\nfunc run() {}", ["Widget", "run", "count"]),
-            ("sample.lua", "local Widget = {}; function run(count) return count end", ["Widget", "run", "count"]),
+            (
+                "sample.cpp",
+                "struct Widget { int count; }; void run() { Widget item; item.count = 42; }",
+                ["Widget", "count", "run"],
+            ),
+            (
+                "sample.c",
+                "struct Widget { int count; }; void run(void) { struct Widget item; }",
+                ["Widget", "count", "run"],
+            ),
+            (
+                "sample.py",
+                "class Widget:\n    def run(self, count):\n        return count",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.js",
+                "class Widget { run(count) { return count; } }",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.ts",
+                "class Widget { run(count: number): number { return count; } }",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.cs",
+                "class Widget { int count; void run() {} }",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.java",
+                "class Widget { int count; void run() {} }",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.go",
+                "package demo\ntype Widget struct { count int }\nfunc run() {}",
+                ["Widget", "run", "count"],
+            ),
+            (
+                "sample.lua",
+                "local Widget = {}; function run(count) return count end",
+                ["Widget", "run", "count"],
+            ),
         ] {
             for dark in [false, true] {
                 let mut cache = SyntaxCache::default();

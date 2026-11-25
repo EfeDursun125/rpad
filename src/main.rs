@@ -284,7 +284,72 @@ fn bind_line_metrics(ui: &AppWindow) {
     });
 }
 
+fn bind_context_menu(ui: &AppWindow) {
+    use i_slint_core::{item_tree::ItemRc, items::TextInput, window::WindowInner};
+    let root = ItemRc::new_root(WindowInner::from_pub(ui.window()).component());
+    let weak = ui.as_weak();
+    root.visit_descendants(|item| {
+        if let Some(input) = i_slint_core::items::ItemRef::downcast_pin::<TextInput>(item.borrow())
+        {
+            if !input.single_line() {
+                let weak = weak.clone();
+                input.on_context_menu(move |position| {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.invoke_open_context_menu(position.x, position.y);
+                    }
+                });
+                return std::ops::ControlFlow::Break(());
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    });
+}
+
+fn bind_font_picker(ui: &AppWindow, automatic: slint::SharedString, automatic_weight: i32) {
+    ui.set_automatic_font(automatic.clone());
+    let weak = ui.as_weak();
+    ui.on_font_menu_requested(move || {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let current = ui.get_font_override();
+        let mut families = font::families();
+        if !current.is_empty() && !families.iter().any(|name| name == current.as_str()) {
+            families.push(current.to_string());
+            families.sort_by_cached_key(|name| name.to_lowercase());
+        }
+        let index = families
+            .iter()
+            .position(|name| name == current.as_str())
+            .map_or(0, |index| index as i32 + 1);
+        let mut options = vec![slint::SharedString::from("Automatic (system / terminal)")];
+        options.extend(families.into_iter().map(slint::SharedString::from));
+        ui.set_font_families(slint::ModelRc::new(slint::VecModel::from(options)));
+        ui.set_font_index(index);
+        ui.set_font_dialog_open(true);
+    });
+    let weak = ui.as_weak();
+    ui.on_font_picked(move |index| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        if index == 0 {
+            ui.set_font_override("".into());
+            ui.set_editor_font(automatic.clone());
+            ui.set_editor_font_weight(automatic_weight);
+        } else if let Some(family) = usize::try_from(index)
+            .ok()
+            .and_then(|index| ui.get_font_families().row_data(index))
+        {
+            ui.set_font_override(family.clone());
+            ui.set_editor_font(family);
+            ui.set_editor_font_weight(400);
+        }
+    });
+}
+
 fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
+    bind_context_menu(ui);
     let search = Rc::new(RefCell::new(search::SearchCache::default()));
     let worker = Rc::new(search_worker::Worker::new(ui));
     let syntax_worker = Rc::new(syntax::Worker::new(ui));
@@ -468,6 +533,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_ui_font(font.family.into());
     }
 
+    if let Some(font) = font::detect() {
+        ui.set_editor_font(font.family.into());
+        ui.set_editor_font_weight(font.weight);
+    }
+    bind_font_picker(&ui, ui.get_editor_font(), ui.get_editor_font_weight());
+
     let settings_path = settings::path();
     let mut saved_settings =
         settings::Settings::load(&settings_path, settings::Settings::capture(&ui));
@@ -499,10 +570,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
     );
-    if let Some(font) = font::detect() {
-        ui.set_editor_font(font.family.into());
-        ui.set_editor_font_weight(font.weight);
-    }
     let state = Rc::new(RefCell::new(Document::default()));
     install_document(&ui, &state, initial);
     // File reads and portal queries run away from the event loop. Reapply only changed palettes.
@@ -1005,6 +1072,34 @@ mod editor_tests {
         });
         slint::run_event_loop().unwrap();
         ui.hide().unwrap();
+    }
+
+    #[test]
+    fn editor_context_menu_and_font_picker_preserve_state() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = AppWindow::new().unwrap();
+        let state = Rc::new(RefCell::new(Document::default()));
+        bind_editor(&ui, &state);
+        ui.set_document_text("hello world".into());
+        ui.invoke_select_range(0, 5);
+        ui.invoke_open_context_menu(100., 100.);
+        assert_eq!(ui.get_menu(), 4);
+        assert_eq!((ui.get_anchor_offset(), ui.get_cursor_offset()), (0, 5));
+
+        bind_font_picker(&ui, "Automatic Mono".into(), 500);
+        ui.set_font_families(slint::ModelRc::new(slint::VecModel::from(vec![
+            "Automatic".into(),
+            "Test Mono".into(),
+        ])));
+        ui.invoke_font_picked(1);
+        assert_eq!(ui.get_editor_font(), "Test Mono");
+        assert_eq!(ui.get_font_override(), "Test Mono");
+        let settings = settings::Settings::capture(&ui);
+        ui.invoke_font_picked(0);
+        assert_eq!(ui.get_editor_font(), "Automatic Mono");
+        assert_eq!(ui.get_editor_font_weight(), 500);
+        settings.apply(&ui);
+        assert_eq!(ui.get_editor_font(), "Test Mono");
     }
 
     #[test]
