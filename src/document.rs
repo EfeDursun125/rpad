@@ -343,6 +343,18 @@ fn atomic_write(
             }
         }
         file.set_permissions(meta.permissions())?;
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let source = fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(path)?;
+            if !same_metadata(meta, &source.metadata()?) {
+                return Err(conflict());
+            }
+            crate::xattrs::copy(&source, file)?;
+        }
     }
     temp.as_file().sync_all()?;
     // Keep verification close to the rename, after the potentially slow write.

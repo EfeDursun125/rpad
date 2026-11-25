@@ -6,12 +6,15 @@ mod font;
 mod history;
 mod indent;
 mod lines;
+mod recovery;
 mod scheduling;
 mod search;
 mod search_worker;
 mod settings;
 mod syntax;
 mod theme;
+#[cfg(target_os = "linux")]
+mod xattrs;
 
 use document::Document;
 use slint::{ComponentHandle, Model};
@@ -390,6 +393,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     scheduling::lower_priority();
     theme::prepare_sudo_display();
+    let recover = path.is_none() && std::env::var_os("RPAD_DISABLE_RECOVERY").is_none();
     let initial = if let Some(path) = path {
         Document::open(&path).unwrap_or_else(|error| {
             eprintln!("rpad: {}: {error}", path.display());
@@ -466,6 +470,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     bind_editor(&ui, &state);
+    let mut recovery = if std::env::var_os("RPAD_DISABLE_RECOVERY").is_none() {
+        match recovery::Session::start(&ui, &settings_path, recover) {
+            Ok(session) => Some(session),
+            Err(error) => {
+                eprintln!("rpad: recovery unavailable: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let controller = controller::Controller::new(&ui, state.clone());
     let handler = controller.clone();
     ui.on_action(move |action| handler.request(&action));
@@ -481,6 +496,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     ui.run()?;
+    if let Some(session) = recovery.take() {
+        session.finish();
+    }
     settings_timer.stop();
 
     if let Err(error) =
