@@ -114,9 +114,74 @@ impl SearchCache {
     }
 }
 
+pub struct Replacement {
+    pub changed: Option<(usize, SharedString)>,
+    pub count: usize,
+}
+
+pub fn replace_all(
+    text: &str,
+    needle: &str,
+    replacement: &str,
+) -> Result<Replacement, &'static str> {
+    if needle.is_empty() {
+        return Ok(Replacement {
+            changed: None,
+            count: 0,
+        });
+    }
+
+    let mut matches = text.match_indices(needle);
+    let Some((first, _)) = matches.next() else {
+        return Ok(Replacement {
+            changed: None,
+            count: 0,
+        });
+    };
+    let count = 1 + matches.count();
+    let size = count
+        .checked_mul(replacement.len())
+        .and_then(|inserted| (text.len() - count * needle.len()).checked_add(inserted))
+        .filter(|size| *size <= i32::MAX as usize)
+        .ok_or("Replacement exceeds document size limit")?;
+
+    let mut changed = String::new();
+    changed
+        .try_reserve_exact(size)
+        .map_err(|_| "Not enough memory for replacement")?;
+    let mut previous = 0;
+    for (offset, matched) in text.match_indices(needle) {
+        changed.push_str(&text[previous..offset]);
+        changed.push_str(replacement);
+        previous = offset + matched.len();
+    }
+    changed.push_str(&text[previous..]);
+
+    Ok(Replacement {
+        changed: Some((first, changed.into())),
+        count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replace_all_preserves_unicode_offsets_and_nonoverlapping_matches() {
+        let result = replace_all("ğ🦀aaa", "aa", "ö").unwrap();
+        assert_eq!(result.count, 1);
+        let (first, text) = result.changed.unwrap();
+        assert_eq!(first, "ğ🦀".len());
+        assert_eq!(text, "ğ🦀öa");
+
+        let result = replace_all("abc abc", "abc", "").unwrap();
+        assert_eq!(result.count, 2);
+        assert_eq!(result.changed.unwrap().1, " ");
+
+        assert!(replace_all("abc", "x", "z").unwrap().changed.is_none());
+        assert!(replace_all("abc", "", "z").unwrap().changed.is_none());
+    }
 
     #[test]
     fn excessive_matches_use_bounded_fallback() {

@@ -8,6 +8,7 @@ mod indent;
 mod lines;
 mod scheduling;
 mod search;
+mod search_worker;
 mod settings;
 mod syntax;
 mod theme;
@@ -138,8 +139,12 @@ fn find(ui: &AppWindow, backwards: bool, cache: &mut search::SearchCache) {
     let start = cursor.min(anchor);
     let end = cursor.max(anchor);
     let (found, count) = cache.find(text, needle.clone(), start, end, backwards);
+    apply_find_result(ui, found, count, needle.len());
+}
+
+fn apply_find_result(ui: &AppWindow, found: Option<usize>, count: usize, needle_len: usize) {
     if let Some(index) = found {
-        ui.invoke_select_range(index as i32, (index + needle.len()) as i32);
+        ui.invoke_select_range(index as i32, (index + needle_len) as i32);
         ui.set_search_status(format!("{count} matches").into());
     } else {
         ui.set_search_status("No matches".into());
@@ -153,15 +158,11 @@ fn replace(ui: &AppWindow, all: bool) {
     let text = ui.get_document_text();
     let replacement = ui.get_replacement_text();
     if all {
-        let count = text.matches(needle.as_str()).count();
-        if let Some(first) = text.find(needle.as_str()) {
-            ui.set_document_text(text.replace(needle.as_str(), replacement.as_str()).into());
-            // The prefix before the first match is unchanged by replacement.
-            let end = first + replacement.len();
-            ui.invoke_select_range(first as i32, end as i32);
-            ui.invoke_edited();
-        }
-        ui.set_search_status(format!("{count} replaced").into());
+        apply_replace_all(
+            ui,
+            search::replace_all(&text, &needle, &replacement),
+            replacement.len(),
+        );
     } else {
         let a = (ui.get_cursor_offset().max(0) as usize).min(text.len());
         let b = (ui.get_anchor_offset().max(0) as usize).min(text.len());
@@ -183,6 +184,24 @@ fn replace(ui: &AppWindow, all: bool) {
         }
     }
 }
+fn apply_replace_all(
+    ui: &AppWindow,
+    result: Result<search::Replacement, &'static str>,
+    replacement_len: usize,
+) {
+    match result {
+        Ok(result) => {
+            if let Some((first, text)) = result.changed {
+                ui.set_document_text(text);
+                ui.invoke_select_range(first as i32, (first + replacement_len) as i32);
+                ui.invoke_edited();
+            }
+            ui.set_search_status(format!("{} replaced", result.count).into());
+        }
+        Err(error) => ui.set_search_status(error.into()),
+    }
+}
+
 fn selection(ui: &AppWindow) -> history::Selection {
     history::Selection {
         anchor: ui.get_anchor_offset(),
@@ -214,6 +233,7 @@ fn bind_line_metrics(ui: &AppWindow) {
 
 fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let search = Rc::new(RefCell::new(search::SearchCache::default()));
+    let worker = Rc::new(search_worker::Worker::new(ui));
     let weak = ui.as_weak();
     ui.on_lines_visibility_changed(move || {
         if let Some(ui) = weak.upgrade() {
@@ -277,10 +297,12 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
     let weak = ui.as_weak();
     let edits = history.clone();
     let matches = search.clone();
+    let jobs = worker.clone();
     ui.on_history_reset(move || {
         if let Some(ui) = weak.upgrade() {
             *edits.borrow_mut() = history::History::new(ui.get_document_text());
             matches.borrow_mut().clear();
+            jobs.clear();
         }
     });
     let weak = ui.as_weak();
@@ -310,16 +332,27 @@ fn bind_editor(ui: &AppWindow, state: &Rc<RefCell<Document>>) {
         }
     });
     let matches = search.clone();
+    let jobs = worker.clone();
     let weak = ui.as_weak();
     ui.on_find_next(move |backwards| {
         if let Some(ui) = weak.upgrade() {
-            find(&ui, backwards, &mut matches.borrow_mut());
+            if ui.get_document_text().len() >= search_worker::BACKGROUND_THRESHOLD {
+                jobs.submit(&ui, search_worker::Operation::Find(backwards));
+            } else {
+                jobs.clear();
+                find(&ui, backwards, &mut matches.borrow_mut());
+            }
         }
     });
     let weak = ui.as_weak();
     ui.on_replace_text(move |all| {
         if let Some(ui) = weak.upgrade() {
-            replace(&ui, all);
+            if all && ui.get_document_text().len() >= search_worker::BACKGROUND_THRESHOLD {
+                worker.submit(&ui, search_worker::Operation::ReplaceAll);
+            } else {
+                worker.clear();
+                replace(&ui, all);
+            }
         }
     });
 }
