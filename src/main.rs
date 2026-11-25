@@ -932,7 +932,7 @@ mod editor_tests {
 
     #[test]
     fn display_refresh_interval_never_exceeds_180_fps() {
-        use frame_pacing::render_interval;
+        let render_interval = |refresh| frame_pacing::render_interval_with_limit(refresh, 180_000);
         assert_eq!(render_interval(Some(60_000)).as_nanos(), 16_666_667);
         assert_eq!(render_interval(Some(120_000)).as_nanos(), 8_333_334);
         assert_eq!(render_interval(Some(180_000)).as_nanos(), 5_555_556);
@@ -943,6 +943,16 @@ mod editor_tests {
         assert_eq!(render_interval(Some(59_940)).as_nanos(), 16_683_351);
         assert_eq!(render_interval(None), render_interval(Some(60_000)));
         assert_eq!(render_interval(Some(0)), render_interval(None));
+        assert_eq!(
+            frame_pacing::render_interval_with_limit(Some(500_000), 500_000).as_nanos(),
+            2_000_000
+        );
+        assert_eq!(
+            frame_pacing::render_interval_with_limit(Some(240_000), u32::MAX).as_nanos(),
+            4_166_667
+        );
+        // Keep the actual environment-aware path covered as well.
+        assert!(frame_pacing::render_interval(None).as_nanos() > 0);
     }
 
     #[test]

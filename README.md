@@ -69,7 +69,7 @@ Turning off **Smooth animations** disables caret movement interpolation, charact
 
 ## Rendering and frame limits
 
-RPad prefers the FemtoVG/WGPU renderer. It selects Mailbox presentation when supported by the surface and FIFO otherwise. Rendering follows the current monitor's refresh rate with a hard upper limit of 180 FPS; missing monitor information falls back to 60 Hz. The limit applies to input, animation and resize redraws, including the optional OpenGL path (`SLINT_BACKEND=winit-femtovg`). Idle windows redraw only when needed.
+RPad prefers the FemtoVG/WGPU renderer. It selects Mailbox presentation when supported by the surface and FIFO otherwise. Rendering follows the current monitor's refresh rate with a default upper limit of 180 FPS; missing monitor information falls back to 60 Hz. Set `RPAD_MAX_FPS` to 30–1000 (for example, `RPAD_MAX_FPS=500 rpad`) or `monitor` to follow the display without the default cap. The limit applies to input, animation and resize redraws, including the optional OpenGL path (`SLINT_BACKEND=winit-femtovg`). Idle windows redraw only when needed.
 
 ## System integration
 

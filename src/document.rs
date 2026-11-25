@@ -3,7 +3,7 @@ use slint::SharedString;
 use std::os::unix::fs::MetadataExt;
 use std::{
     fs,
-    io::{self, BufWriter, Read, Write},
+    io::{self, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -127,7 +127,11 @@ impl Document {
     }
 
     pub fn save_snapshot(&mut self, path: &Path, text: SharedString) -> io::Result<()> {
-        let destination = if path.exists() {
+        // The original path was canonicalized when opened. Do not follow a new
+        // symlink substituted at that path while the document was being edited.
+        let destination = if self.path.as_deref() == Some(path) {
+            path.to_path_buf()
+        } else if path.exists() {
             fs::canonicalize(path)?
         } else {
             absolute(path)?
@@ -141,12 +145,9 @@ impl Document {
             || {
                 if same_destination {
                     let unchanged = match self.original_exists {
-                        Some(true) => matches_file(
-                            &destination,
-                            self.text.as_str(),
-                            self.bom,
-                            self.crlf,
-                        )?,
+                        Some(true) => {
+                            matches_file(&destination, self.text.as_str(), self.bom, self.crlf)?
+                        }
                         _ => !destination.exists(),
                     };
                     if !unchanged {
@@ -210,7 +211,7 @@ fn write_document(writer: &mut dyn Write, text: &str, bom: bool, crlf: bool) -> 
 
 fn matches_file(path: &Path, text: &str, bom: bool, crlf: bool) -> io::Result<bool> {
     let mut file = match fs::File::open(path) {
-        Ok(file) => file,
+        Ok(file) => BufReader::with_capacity(64 * 1024, file),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
@@ -248,7 +249,7 @@ fn matches_file(path: &Path, text: &str, bom: bool, crlf: bool) -> io::Result<bo
     Ok(file.read(&mut extra)? == 0)
 }
 
-fn matches_bytes(file: &mut fs::File, actual: &mut [u8], expected: &[u8]) -> io::Result<bool> {
+fn matches_bytes(file: &mut impl Read, actual: &mut [u8], expected: &[u8]) -> io::Result<bool> {
     for part in expected.chunks(actual.len()) {
         match file.read_exact(&mut actual[..part.len()]) {
             Ok(()) => {}
@@ -300,8 +301,7 @@ fn same_metadata(before: &fs::Metadata, after: &fs::Metadata) -> bool {
         after.ctime(),
         after.ctime_nsec(),
         after.nlink(),
-    )
-    {
+    ) {
         return false;
     }
     before.len() == after.len() && before.modified().ok() == after.modified().ok()
@@ -451,6 +451,22 @@ mod tests {
         fs::write(&path, b"first").unwrap();
         assert!(doc.save(&path, "mine").is_err());
         assert_eq!(fs::read(&path).unwrap(), b"first");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_symlink_substituted_for_original_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note");
+        let other = dir.path().join("other");
+        fs::write(&path, b"original").unwrap();
+        fs::write(&other, b"other").unwrap();
+        let mut doc = Document::open(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        symlink(&other, &path).unwrap();
+        let destination = doc.path.clone().unwrap();
+        assert!(doc.save(&destination, "mine").is_err());
+        assert_eq!(fs::read(&other).unwrap(), b"other");
     }
 
     #[test]
